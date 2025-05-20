@@ -1,0 +1,22 @@
+version: "2.4"
+services:
+  desktop:
+    image: registry.cn-shenzhen.aliyuncs.com/infrastlabs/docker-hdmi-desktop:${TAG:-app-ubuntu-22.04} #core-debian-9>12 #ubt20/22/24
+    entrypoint: bash /entry-x11base.sh
+    hostname: hdmi-desktop
+    restart: none #unless-stopped always
+    privileged: true
+    network_mode: host #bridge host
+    ports:
+      - 52022:52022
+      - 52081:52081
+      - 52089:52089
+      - 4096:4096
+    devices:
+      - "/dev:/dev"
+    volumes: 
+      - ./src/bin/:/usr/local/bin/
+      - ./src/entry-x11base.sh:/entry-x11base.sh
+      - ./src/xvnc2.sh:/xvnc2.sh
+      - ./.arg:/.arg
+      - /_ext:/_ext
