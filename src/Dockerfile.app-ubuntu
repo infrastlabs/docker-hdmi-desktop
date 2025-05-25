@@ -1,0 +1,22 @@
+ARG TARGETARCH
+ARG VER=app-ubuntu-20.04
+FROM registry.cn-shenzhen.aliyuncs.com/infrastlabs/x11-base:${VER}
+RUN \
+  echo a.1234; \
+  # avoid: apt ins pulseaudio's replaceConfirm
+  rm -f /etc/pulse/default.pa; \
+  apt.sh \
+  xserver-xorg pulseaudio \
+  xserver-xorg-input-evdev \
+  # genMachine--amd
+  xserver-xorg-video-all \
+  # lame existed.
+  # sox: play xx.mp3; alsa: aplay -l
+  lame sox libsox-fmt-mp3 
+
+RUN \
+# lame sox libsox-fmt-mp3
+  apt.sh beep dbus-x11 \
+  # alsa-oss alsa-tools-gui alsamixergui \
+  alsa-tools alsa-utils mpg123 ; \
+  echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3";
