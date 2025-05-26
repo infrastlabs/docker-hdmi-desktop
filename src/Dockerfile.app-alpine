@@ -1,0 +1,18 @@
+ARG TARGETARCH
+ARG VER=app-alpine-3.19
+FROM registry.cn-shenzhen.aliyuncs.com/infrastlabs/x11-base:${VER}
+RUN \
+  echo a.123; \
+  # avoid: apt ins pulseaudio's replaceConfirm
+  rm -f /etc/pulse/default.pa; \
+  # sox: play xx.mp3; alsa: aplay -l
+  apk add pulseaudio lame  \
+  # alpine313_x64.only: xf86-video-intel xf86-video-vboxvideo 
+  xorg-server xf86-input-evdev  xf86-video-nouveau xf86-video-fbdev xf86-video-amdgpu xf86-video-vesa 
+  
+
+RUN \
+  # alpine: sox libsox-fmt-mp3 ; sox:exist but err @3.19
+  # aplay@alsa-utils
+  apk add mpg123 xrandr alsa-utils; \
+  echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3";
