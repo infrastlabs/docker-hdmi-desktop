@@ -8,15 +8,59 @@ RUN \
   apt.sh \
   xserver-xorg pulseaudio \
   xserver-xorg-input-evdev \
-  # genMachine--amd
-  xserver-xorg-video-all \
+  # genMachine.amdgpu
+  #   genM.ubt24: drop xserver-xorg-video-amdgpu/xserver-xorg-video-all; 
+  #   保留时:Xorg启动报错找不到/usr/lib/dri/radeonsi_dri.so
+  # xserver-xorg-video-all \
   # lame existed.
   # sox: play xx.mp3; alsa: aplay -l
   lame sox libsox-fmt-mp3 
 
-RUN \
 # lame sox libsox-fmt-mp3
+RUN \
+  # chvt@kbd
   apt.sh beep dbus-x11 \
+  # 260519:add; pactl load-module module-alsa-sink device=plughw:0,3 [plughw:0,0]
+  #  ubt1804.none: alsa-ucm-conf
+  kbd \
+  # 260519:add
+  less bash-completion tumbler \
+  # 260529:glxinfo @mesa-utils
+  mesa-utils \
+  # 260529:weipai-s11--intel.i915(xserver-xorg-video-intel, all内不含)
+  xserver-xorg-video-intel \
+  \
+  # for: weipai-s11's touchpad; evtest /dev/input/event7 操作touch板即有反应
+  xinput evtest \
+  xserver-xorg-input-libinput xserver-xorg-input-synaptics \
+  network-manager xfce4-power-manager \
   # alsa-oss alsa-tools-gui alsamixergui \
   alsa-tools alsa-utils mpg123 ; \
   echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3";
+
+RUN \
+  apt.sh \
+  #upower已装
+  pm-utils upower \
+  # connman cmst \
+  #nmsurf:rofi; nmrs; #nm-tray: notes qt-bigDeps<15M>
+  rofi  xterm; \
+  \
+  #ubt1804.none: alsa-ucm-conf jgmenu
+  apt.sh alsa-ucm-conf jgmenu; \
+  #40M+: nm-applet[deb9:only.5M, ubt20+:muchDeps.withGnomeDesk.40M+]
+  # apt.sh network-manager-gnome; \
+  exit 0
+
+ADD ./src/entry-x11base.sh /
+ADD ./src/xvnc2.sh /
+# ADD ./src/bin/input.sh:/usr/local/bin/
+RUN \
+    chmod +x /*.sh; \
+    # DO dotfiles/refresh.sh
+    cd /usr/local/static/.dotfiles/; \
+    git config --global --add safe.directory /usr/local/static/.dotfiles; \
+    git fetch; git reset --hard origin/master; \
+    bash refresh.sh; \
+    exit 0
+
