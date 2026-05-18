@@ -1,0 +1,68 @@
+ARG TARGETARCH
+ARG VER=core-debian-12
+FROM registry.cn-shenzhen.aliyuncs.com/infrastlabs/x11-base:${VER}
+RUN \
+  echo a.1234; \
+  # avoid: apt ins pulseaudio's replaceConfirm
+  rm -f /etc/pulse/default.pa; \
+  apt.sh \
+  xserver-xorg pulseaudio \
+  xserver-xorg-input-evdev \
+  # genMachine--amd
+  xserver-xorg-video-all \
+  # lame existed.
+  # sox: play xx.mp3; alsa: aplay -l
+  lame sox libsox-fmt-mp3 
+
+# lame sox libsox-fmt-mp3
+RUN \
+  # chvt@kbd
+  apt.sh beep dbus-x11 \
+  # pactl load-module module-alsa-sink device=plughw:0,3
+  kbd \
+  # alsa-oss alsa-tools-gui alsamixergui \
+  alsa-tools alsa-utils mpg123 ; \
+  echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3";
+
+# core-debian: +apps
+# deb9-ex: flameshot; left:99.6 MB
+RUN apt.sh \
+  tzdata locales binutils dconf-cli \
+  dbus-x11 at-spi2-core gtk2-engines-pixbuf \
+  apt-utils x11-xkb-utils xdg-utils \
+    xfwm4 xfdesktop4 xfce4-notifyd xfce4-settings xfce4-session \
+    thunar dunst clipit pasystray pcmanfm lxappearance \
+    sakura geany ristretto gnome-system-monitor plank engrampa \
+    x11-xserver-utils scrot git mousepad \
+    pavucontrol ibus ibus-gtk ibus-gtk3 ibus-rime librime-data-wubi \
+  \
+  kbd less bash-completion tumbler xinput evtest \
+  xserver-xorg-input-libinput xserver-xorg-input-synaptics \
+  network-manager xfce4-power-manager
+
+RUN apt.sh \
+  # 260529:glxinfo @mesa-utils
+  mesa-utils \
+  # 260529:weipai-s11--intel.i915(xserver-xorg-video-intel, all内不含)
+  xserver-xorg-video-intel \
+  # 40M+: nm-applet; deb9.none:nm-tray 
+  network-manager-gnome \
+  rofi  xterm; \
+  exit 0
+
+RUN \
+  # DO dotfiles/refresh.sh
+  cd /usr/local/static/.dotfiles/; \
+  git config --global --add safe.directory /usr/local/static/.dotfiles; \
+  git fetch; git reset --hard origin/master; \
+  bash refresh.sh; \
+  exit 0
+
+# # deb8-none: alsa-ucm-conf; left:47.8M
+#   xserver-xorg pulseaudio \
+#   xserver-xorg-input-evdev \
+#   xserver-xorg-video-all \
+#   lame sox libsox-fmt-mp3 \
+#   apt.sh beep dbus-x11 \
+#   kbd \
+#   alsa-tools alsa-utils mpg123
