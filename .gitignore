@@ -1,0 +1,14 @@
+.settings
+*.classpath
+*.project
+*.iml
+.idea
+.vscode
+
+*.vswp
+#*.docx
+/.env
+
+# ./src/bin=> /usr/local/bin
+/src/bin/
+!/src/bin/*.sh
