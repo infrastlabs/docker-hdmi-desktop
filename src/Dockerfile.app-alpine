@@ -1,6 +1,9 @@
 ARG TARGETARCH
 ARG VER=app-alpine-3.19
+FROM --platform=linux/amd64 registry.cn-shenzhen.aliyuncs.com/infrastlabs/docker-hdmi-desktop:core-debian-11 as deb
+FROM --platform=linux/amd64 registry.cn-shenzhen.aliyuncs.com/infrastlabs/docker-hdmi-desktop:app-ubuntu-22.04 as ubt
 FROM registry.cn-shenzhen.aliyuncs.com/infrastlabs/x11-base:${VER}
+# xserver-xorg-video-all:none
 RUN \
   echo a.123; \
   # avoid: apt ins pulseaudio's replaceConfirm
@@ -8,11 +11,51 @@ RUN \
   # sox: play xx.mp3; alsa: aplay -l
   apk add pulseaudio lame  \
   # alpine313_x64.only: xf86-video-intel xf86-video-vboxvideo 
-  xorg-server xf86-input-evdev  xf86-video-nouveau xf86-video-fbdev xf86-video-amdgpu xf86-video-vesa 
+  xorg-server xf86-input-evdev  xf86-video-nouveau xf86-video-fbdev xf86-video-amdgpu xf86-video-vesa; \
+  exit 0
   
 
 RUN \
   # alpine: sox libsox-fmt-mp3 ; sox:exist but err @3.19
   # aplay@alsa-utils
   apk add mpg123 xrandr alsa-utils; \
-  echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3";
+  echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3"; \
+  exit 0
+
+# https://pkgs.alpinelinux.org/packages?name=*alsa-tools*&branch=edge&repo=&arch=x86_64&origin=&flagged=&maintainer=
+# v3.23.none: network-manager 
+RUN \
+  apk add beep dbus-x11 \
+  alsa-tools sox \
+  \
+  xf86-input-synaptics \
+  alsa-ucm-conf kbd less bash-completion \
+  tumbler xinput evtest \
+  \
+  xf86-video-intel \
+  xfce4-power-manager \
+  network-manager-applet \
+  rofi xterm ; \
+  # alpine313.none: mesa-utils
+  apk add mesa-utils ;\
+  exit 0
+
+# mesa-egl: for alpine313/314; alpine316/319/323:已装;
+RUN \
+  apk add \
+  mesa-egl eudev \
+  networkmanager \
+  pavucontrol \
+  musl-locales musl-locales-lang; \
+  # alpine313.none: sakura
+  apk add sakura ;\
+  \
+  # DO dotfiles/refresh.sh
+  cd /usr/local/static/.dotfiles/; \
+  git config --global --add safe.directory /usr/local/static/.dotfiles; \
+  git fetch; git reset --hard origin/master; \
+  bash refresh.sh; \
+  exit 0
+
+COPY --from=deb /usr/share/locale/zh_CN /usr/share/locale/zh_CN
+COPY --from=ubt /usr/share/locale/zh_CN /usr/share/locale/zh_CN
