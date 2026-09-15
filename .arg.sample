@@ -1,0 +1,12 @@
+# Desktop Configuration
+#   Modify this file without restarting container
+#   DISPLAY default is :1 (use :3 or other values for testing)
+SSH_PASS=headless
+VNC_PASS=headless
+VNC_PASS_RO=View123
+HOME=/_ext/home/headless
+START_SESSION=openbox-session
+HEADLESS=true
+DISPLAY=:1
+TZ=Asia/Shanghai
+L=zh_CN
