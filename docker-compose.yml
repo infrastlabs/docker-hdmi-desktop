@@ -7,11 +7,10 @@ services:
     restart: none #unless-stopped always
     privileged: true
     network_mode: host #bridge host
-    ports:
-      - 52022:52022
-      - 52081:52081
-      - 52089:52089
-      - 4096:4096
+    # ports:
+    #   - 51022:51022 #5x022 ##x:DISPLAY
+    #   - 51081:51081
+    #   - 51089:51089
     devices:
       - "/dev:/dev"
     volumes: 
