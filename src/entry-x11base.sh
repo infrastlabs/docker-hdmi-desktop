@@ -131,7 +131,7 @@ Hidden=false
     if [ "true" == "$HEADLESS" ]; then
         addPerpService "$xn" "xvnc" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh xvnc $N\""
     else
-        addPerpService "$xn" "org" "exec su-exec headless bash -c \"exec /xvnc2.sh xorg $N\""
+        addPerpService "$xn" "xorg" "exec su-exec headless bash -c \"exec /xvnc2.sh xorg $N\""
         addPerpService "$xn" "x11vnc" "exec su-exec headless bash -c \"exec /xvnc2.sh x11vnc $N\""
     fi
     addPerpService "$xn" "chansrv" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh chansrv $N\""
@@ -140,6 +140,7 @@ Hidden=false
     addPerpService "$xn" "pulse" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh pulse $N\""
     # addPerpService "$xn" "opencode" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh opencode $N\""
     # addPerpService "$xn" "cloudcli" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh cloudcli $N\""
+    addPerpService "$xn" "chvt" "exec su-exec root bash -c \"while true; do sleep 1; bash /usr/local/bin/f12_to_tty1.sh; done\""
 
     # DBUS
     # ~/.xinitrc
@@ -365,7 +366,7 @@ chmod +x /usr/sbin/runtool
 # chmod o+t > chmod 1755 #o+t: busybox,openwrt不支持
 ls -F /etc/perp/ |grep "/$" |while read one; do
   chmod 1755 /etc/perp/$one;
-  test ! -z "$(echo $one |grep -E '^x.*-de|^x.*-xvnc')" && rclog "$one";
+  test ! -z "$(echo $one |grep -E '^x.*-de|^x.*-xvnc|^x.*-xorg|^x.*-chvt')" && rclog "$one";
 done
 # set rc.* executable
 chmod +x /etc/perp/**/rc.*
