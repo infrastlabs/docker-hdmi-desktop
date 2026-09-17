@@ -212,6 +212,10 @@ function setXserver(){
     sed -i "s/ListenPort=3350/ListenPort=${SES_PORT}/g" /etc/xrdp/sesman.ini
 
     # xvnc0-de
+    # 清理历史 DISPLAY 遗留的 perp 服务: DISPLAY 变化时(如 :1->:2),
+    # 旧 x$oldN-* 目录残留会随 perpd 启动, 拉起历史 DISPLAY 的 xvnc/xorg 等。
+    # glob x[0-9]*-* 仅匹配 xN-xxx, 不影响 ssh/tpl-rc.main 等服务。
+    rm -rf /etc/perp/x[0-9]*-*
     port0=$((0 + dispNum)) #vnc: 5900+10; VNC_OFFSET>dispNum
     oneVnc "$port0" "headless" #sv
 
