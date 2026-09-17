@@ -43,8 +43,12 @@ fi
 
 # --- 监听并触发 ---
 echo "监听 $KEYBOARD_DEV，按 F12 做触发..."
+# BUG: set -euo pipefail 下, grep -m1 匹配后退出 -> 管道关闭 -> evtest 收到
+#   SIGPIPE 被杀(141) -> pipefail 使 pipeline 返回 141 -> set -e 直接退出,
+#   导致最后两行(echo/chvt)不执行。|| true 兜底: 走到这里必然已匹配成功。
 sudo evtest "$KEYBOARD_DEV" \
-  | grep -m1 --line-buffered -E "type 1 \(EV_KEY\), code $TARGET_CODE \([A-Z0-9_]+\), value 1"
+  | grep -m1 --line-buffered -E "type 1 \(EV_KEY\), code $TARGET_CODE \([A-Z0-9_]+\), value 1" \
+  || true
 
 # https://chat.deepseek.com/a/chat/s/55609a42-91d4-435e-9866-5c9717090f2b
 # 修法 A：用 stdbuf 强制 evtest 行缓冲（最推荐）|BAD:无效果,不执行 直接exit
