@@ -43,12 +43,26 @@ fi
 
 # --- 监听并触发 ---
 echo "监听 $KEYBOARD_DEV，按 F12 做触发..."
-# BUG: set -euo pipefail 下, grep -m1 匹配后退出 -> 管道关闭 -> evtest 收到
-#   SIGPIPE 被杀(141) -> pipefail 使 pipeline 返回 141 -> set -e 直接退出,
-#   导致最后两行(echo/chvt)不执行。|| true 兜底: 走到这里必然已匹配成功。
-sudo evtest "$KEYBOARD_DEV" \
-  | grep -m1 --line-buffered -E "type 1 \(EV_KEY\), code $TARGET_CODE \([A-Z0-9_]+\), value 1" \
-  || true
+# BUG: evtest|grep 管道不可用——grep -m1 匹配后读端关闭:
+#   1) evtest SIGPIPE(141) -> pipefail -> set -e 提前退出;
+#   2) evtest 阻塞在 read 不写管道时不被杀 -> pipeline 永久挂起。
+#   (仅加 || true 对场景2 无效, 已实测死锁, 见 docs/b6-260917-f12-chvt-fix.md)
+# 改为: evtest 写独立日志 + 轮询匹配 + 匹配后显式 kill。
+LOG=$(mktemp /tmp/f12-XXXXXX.log)
+pattern="type 1 \(EV_KEY\), code $TARGET_CODE \([A-Z0-9_]+\), value 1"
+sudo evtest "$KEYBOARD_DEV" > "$LOG" 2>/dev/null &
+ev_pid=$!
+while ! grep -qm1 -E "$pattern" "$LOG" 2>/dev/null; do
+    if ! kill -0 "$ev_pid" 2>/dev/null; then
+        echo "evtest 提前退出" >&2
+        rm -f "$LOG"
+        exit 1
+    fi
+    sleep 0.05
+done
+pkill -TERM -P "$ev_pid" 2>/dev/null   # sudo 的子进程 evtest
+kill -TERM "$ev_pid" 2>/dev/null       # sudo
+rm -f "$LOG"
 
 # https://chat.deepseek.com/a/chat/s/55609a42-91d4-435e-9866-5c9717090f2b
 # 修法 A：用 stdbuf 强制 evtest 行缓冲（最推荐）|BAD:无效果,不执行 直接exit
