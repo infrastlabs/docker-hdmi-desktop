@@ -65,12 +65,22 @@ for entry in "${KEYBOARDS[@]}"; do
     dev="${entry%%$'\t'*}"
     name="${entry#*$'\t'}"
     (
-        evtest "$dev" 2>/dev/null \
-          | grep -m1 --line-buffered \
-              -E "type 1 \(EV_KEY\), code ${TARGET_CODE} \([A-Z0-9_]+\), value 1"
-        if [ $? -eq 0 ]; then
+        # BUG: evtest|grep 管道不可用——
+        #   grep -m1 匹配后读端关闭: evtest 或 SIGPIPE(141, pipefail 下 $? 非0,
+        #   TRIGGER 不写入) 或阻塞在 read 不写管道(pipeline 永久挂起)。
+        # 改为: evtest 写独立日志 + 轮询匹配 + 匹配后显式 kill。
+        out="$WORKDIR/ev-${dev//\//_}"
+        pattern="type 1 \(EV_KEY\), code ${TARGET_CODE} \([A-Z0-9_]+\), value 1"
+        evtest "$dev" > "$out" 2>/dev/null &
+        ev_pid=$!
+        while ! grep -qm1 -E "$pattern" "$out" 2>/dev/null; do
+            kill -0 "$ev_pid" 2>/dev/null || break   # evtest 提前退出
+            sleep 0.05
+        done
+        if grep -qm1 -E "$pattern" "$out" 2>/dev/null; then
             printf '%s  |  %s\n' "$dev" "$name" > "$TRIGGER"
         fi
+        kill -TERM "$ev_pid" 2>/dev/null
     ) &
     PIDS+=($!)
 done
