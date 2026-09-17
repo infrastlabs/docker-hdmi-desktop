@@ -10,7 +10,16 @@ xvnc)
     exec Xvnc -ac :$offsetLimitIndex -listen tcp -rfbauth=/etc/xrdp/vnc_pass -depth 16 -BlacklistThreshold=3 -BlacklistTimeout=1
     ;;
 xorg)
+    conf=/etc/X11/xorg.conf.d/10-input.conf; rm -f $conf
     sudo bash /usr/local/bin/input.sh
+    # # udev-wait
+    # while true; do
+    #     sleep 1
+    #     match1=$(ps -ef |grep udev |grep -v grep)
+    #     test ! -z "$match1" && break;
+    # done
+    # sleep 1
+    
     # dispNum=${DISPLAY#*:}; dispNum=${dispNum%.*}
     dispNum=$offsetLimitIndex
     sudo rm -f /tmp/.X${dispNum}-lock
