@@ -38,6 +38,7 @@ RUN \
   alsa-tools alsa-utils mpg123 ; \
   echo "curl mp3.." && su - headless -c "curl --connect-timeout 3 -k -O -fSL https://downsc.chinaz.net/files/download/sound1/201309/3476.mp3";
 
+# ubt22@genM: dropbear-static auth err 
 RUN \
   apt.sh \
   #upower已装
@@ -47,7 +48,7 @@ RUN \
   rofi  xterm; \
   \
   #ubt1804.none: alsa-ucm-conf jgmenu
-  apt.sh alsa-ucm-conf jgmenu; \
+  apt.sh alsa-ucm-conf jgmenu  dropbear  awesome i3-wm; \
   #40M+: nm-applet[deb9:only.5M, ubt20+:muchDeps.withGnomeDesk.40M+]
   # apt.sh network-manager-gnome; \
   exit 0
