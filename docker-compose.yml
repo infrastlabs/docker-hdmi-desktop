@@ -11,9 +11,12 @@ services:
     #   - 51022:51022 #5x022 ##x:DISPLAY
     #   - 51081:51081
     #   - 51089:51089
-    devices:
-      - "/dev:/dev"
+    # devices:
+    #   - /dev:/dev
     volumes: 
+      # - /dev:/dev
+      - /dev/input:/dev/input # 键鼠热插拔(十二节6.2方案B); /dev/pts、/dev/shm保持Docker默认隔离
+      # - /dev/snd:/dev/snd # 声卡直通
       - ./src/bin/:/usr/local/bin/
       - ./src/entry-x11base.sh:/entry-x11base.sh
       - ./src/xvnc2.sh:/xvnc2.sh
