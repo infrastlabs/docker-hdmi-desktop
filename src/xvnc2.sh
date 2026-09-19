@@ -11,15 +11,32 @@ xvnc)
     ;;
 xorg)
     conf=/etc/X11/xorg.conf.d/10-input.conf; rm -f $conf
-    sudo bash /usr/local/bin/input.sh
-    # # udev-wait
-    # while true; do
-    #     sleep 1
-    #     match1=$(ps -ef |grep udev |grep -v grep)
-    #     test ! -z "$match1" && break;
-    # done
-    # sleep 1
+    # sudo bash /usr/local/bin/input.sh
+    # udev-wait
+    while true; do
+        sleep 1
+        match1=$(ps -ef |grep udev |grep -v grep)
+        test ! -z "$match1" && break;
+    done
     
+    #udev: ref docs/data/etc_initd_udev
+    sleep 1
+    # notes.udevadm.TODO:
+    #  1.pulse启失败后sv不断重试,导致sysd-udev产生多个进程/累加(导致机器卡)
+    #  2.进一步导致tty7.touch左单机失效 (tty7.lightdm.logout重进后才可用)
+    if [ ! -f "/tmp/udev-trigger.lock" ]; then
+      sudo udevadm info --cleanup-db
+      # sudo udevadm trigger --type=subsystems --action=add
+      # sudo udevadm trigger --type=devices --action=add
+      # ref docs/b9-260917-udev-container.md  #只补发 input（Xorg 键鼠）+ sound（PulseAudio 声卡）
+      sudo udevadm trigger --type=devices --action=add \
+        --subsystem-match=input \
+        --subsystem-match=sound
+      sudo udevadm settle
+      # sudo udevadm control --reload-rules
+      touch /tmp/udev-trigger.lock
+    fi
+
     # dispNum=${DISPLAY#*:}; dispNum=${dispNum%.*}
     dispNum=$offsetLimitIndex
     sudo rm -f /tmp/.X${dispNum}-lock
@@ -44,24 +61,6 @@ pulse)
     # mkdir -p /tmp/.headless; pa="/tmp/.headless/pulse-$port.pa"
     # cat /etc/pulse/default.pa > $pa; sed -i "s/4700/$port/g" $pa
     # exec pulseaudio --exit-idle-time=-1 -nF $pa
-    
-    #udev: ref docs/data/etc_initd_udev
-    sleep 1
-    # notes.udevadm.TODO:
-    #  1.pulse启失败后sv不断重试,导致sysd-udev产生多个进程/累加(导致机器卡)
-    #  2.进一步导致tty7.touch左单机失效 (tty7.lightdm.logout重进后才可用)
-    if [ ! -f "/tmp/udev-trigger.lock" ]; then
-      sudo udevadm info --cleanup-db
-      # sudo udevadm trigger --type=subsystems --action=add
-      # sudo udevadm trigger --type=devices --action=add
-      # ref docs/b9-260917-udev-container.md  #只补发 input（Xorg 键鼠）+ sound（PulseAudio 声卡）
-      sudo udevadm trigger --type=devices --action=add \
-        --subsystem-match=input \
-        --subsystem-match=sound
-      sudo udevadm settle
-      # sudo udevadm control --reload-rules
-      touch /tmp/udev-trigger.lock
-    fi
 
     sudo sed -i "s/^load-module module-console-kit/#load-module module-console-kit/g" /etc/pulse/default.pa #for: core-debian-9
     sudo rm -rf /tmp/pulse-*
@@ -93,11 +92,12 @@ udev)
     sudo rm -rf /run/udev/control #sock?
     sudev=/lib/systemd/systemd-udevd
 
+    # 调小 worker 上限, 防进程风暴(见 docs/b9 十节4): 8个worker≈串行, 容器只需input/sound
     # exec su-exec root exec ==> exec su-exec root 
     #  avoid ERR: warning: perpd[229]: setting respawn governor on 'start' target of service x2-udev for ./rc.main
-    test -s $sudev && exec su-exec root $sudev #--daemon; ##ubt18非软链:/usr/lib> /lib
+    test -s $sudev && exec su-exec root $sudev --children-max=8 #--daemon; ##ubt18非软链:/usr/lib> /lib
     # eudev@alpine
-    exec su-exec root /sbin/udevd #--daemon 
+    exec su-exec root /sbin/udevd --children-max=8 #--daemon 
     # dpkg -l |grep systemd #cnt4, same with ap34-deb9-host
     # find /run/udev -type f |wc #cnt445
     # udevadm trigger
