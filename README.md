@@ -6,7 +6,7 @@ Fork 自 [hilschernetpi/netpi-desktop-hdmi](https://hub.docker.com/r/hilschernet
 
 ---
 
-## 技术栈
+## 一、技术栈
 
 | 分类 | 技术 |
 |------|------|
@@ -20,7 +20,7 @@ Fork 自 [hilschernetpi/netpi-desktop-hdmi](https://hub.docker.com/r/hilschernet
 
 ---
 
-## 核心架构
+## 二、核心架构
 
 ```
 宿主 → Docker（privileged + host network）
@@ -38,7 +38,7 @@ Fork 自 [hilschernetpi/netpi-desktop-hdmi](https://hub.docker.com/r/hilschernet
               └── ssh         —— SSH 远程登录
 ```
 
-### 多种访问方式
+### 1、多种访问方式
 
 | 方式 | 说明 | 默认端口 (Display :1) |
 |------|------|----------------------|
@@ -53,7 +53,7 @@ Fork 自 [hilschernetpi/netpi-desktop-hdmi](https://hub.docker.com/r/hilschernet
 
 ---
 
-## F12 急救通道（HDMI 黑屏救援）
+## 三、F12 急救通道（HDMI 黑屏救援）
 
 物理 HDMI 模式（HEADLESS=false）下，若 X.org/桌面异常导致屏幕黑屏且键盘无法操作，可按下 **F12** 切换回 tty1 救援。
 
@@ -63,11 +63,11 @@ Fork 自 [hilschernetpi/netpi-desktop-hdmi](https://hub.docker.com/r/hilschernet
 
 ---
 
-## xRDP 集成细节
+## 四、xRDP 集成细节
 
 xRDP 使用 **Xvnc 后端** (`lib=libvnc.so`)，RDP 会话连接到底层 TigerVNC 服务，实现 RDP 与 VNC/noVNC 共享同一个桌面会话。
 
-### 配置流程
+### 1、配置流程
 
 1. **端口动态分配**（`entry-x11base.sh`）
    - `PORT_RDP` = `50000 + DISPLAY_NUM*1000 + 89`
@@ -84,7 +84,7 @@ xRDP 使用 **Xvnc 后端** (`lib=libvnc.so`)，RDP 会话连接到底层 TigerV
    - `xrdp-chansrv` 以 perp 服务 `xN-chansrv` 运行
    - 提供剪贴板共享、文件传输等 RDP 通道功能
 
-### 数据流
+### 2、数据流
 
 ```
 RDP Client (mstsc/FreeRDP)
@@ -98,7 +98,7 @@ RDP Client (mstsc/FreeRDP)
 └─────────────────────┘
 ```
 
-### 认证机制
+### 3、认证机制
 
 - 默认密码：用户 `headless`，密码在 `.arg` 中通过 `VNC_PASS` / `VNC_PASS_RO` 设置
 - VNC 密码文件 `/etc/xrdp/vnc_pass` 由 `vncpasswd` 生成，Xvnc 和 x11vnc 共用
@@ -106,7 +106,7 @@ RDP Client (mstsc/FreeRDP)
 
 ---
 
-## 运行时配置（.arg 文件）
+## 五、运行时配置（.arg 文件）
 
 无需重建镜像，通过挂载 `.arg` 文件动态修改配置；修改后 `docker-compose restart desktop` 即可生效。值与 `.arg.sample` 默认一致：
 
@@ -126,7 +126,7 @@ L=zh_CN                     # 语言
 
 ---
 
-## 目录结构
+## 六、目录结构
 
 ```
 ├── .arg.sample              # 运行时配置模板
@@ -170,9 +170,9 @@ L=zh_CN                     # 语言
 
 ---
 
-## 部署
+## 七、部署
 
-### docker-compose（推荐）
+### 1、docker-compose（推荐）
 
 ```yaml
 # 与仓库 docker-compose.yml 一致
@@ -195,7 +195,7 @@ services:
       - /_ext:/_ext
 ```
 
-### docker run
+### 2、docker run
 
 ```bash
 docker run -d \
@@ -214,7 +214,7 @@ docker run -d \
 
 ---
 
-## Dockerfiles 多版本说明
+## 八、Dockerfiles 多版本说明
 
 | Dockerfile | 基础镜像 | 特点 | 适用场景 |
 |-----------|---------|------|---------|
@@ -225,7 +225,7 @@ docker run -d \
 
 ---
 
-## 构建
+## 九、构建
 
 单命令构建并推送全部发行版/架构（buildx 多平台：linux/amd64,linux/arm64）：
 
