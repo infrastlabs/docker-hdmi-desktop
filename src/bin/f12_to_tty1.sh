@@ -41,6 +41,10 @@ done
 # ---------- 临时状态 & 清理 ----------
 WORKDIR=$(mktemp -d)
 TRIGGER="$WORKDIR/trigger"
+# 无人写入的 fifo + read -t 内建阻塞, 替代外部 sleep(零 fork)
+SLEEP_FIFO="$WORKDIR/quiet"
+mkfifo "$SLEEP_FIFO"
+exec 9<>"$SLEEP_FIFO"
 PIDS=()
 
 cleanup() {
@@ -65,22 +69,22 @@ for entry in "${KEYBOARDS[@]}"; do
     dev="${entry%%$'\t'*}"
     name="${entry#*$'\t'}"
     (
-        # BUG: evtest|grep 管道不可用——
-        #   grep -m1 匹配后读端关闭: evtest 或 SIGPIPE(141, pipefail 下 $? 非0,
-        #   TRIGGER 不写入) 或阻塞在 read 不写管道(pipeline 永久挂起)。
-        # 改为: evtest 写独立日志 + 轮询匹配 + 匹配后显式 kill。
-        out="$WORKDIR/ev-${dev//\//_}"
-        pattern="type 1 \(EV_KEY\), code ${TARGET_CODE} \([A-Z0-9_]+\), value 1"
-        evtest "$dev" > "$out" 2>/dev/null &
-        ev_pid=$!
-        while ! grep -qm1 -E "$pattern" "$out" 2>/dev/null; do
-            kill -0 "$ev_pid" 2>/dev/null || break   # evtest 提前退出
-            sleep 0.05
+        # 事件驱动: coproc 直读 evtest 输出, 零轮询零 fork。
+        # (勿用 evtest|grep 管道: grep -m1 关闭读端后 evtest 或 SIGPIPE(141)
+        #  或阻塞挂起, 见 docs/b6-260917-f12-chvt-fix.md;
+        #  轮询 grep+sleep 每 0.05s fork 两进程, 造成 PID 暴涨, 已弃用)
+        coproc EV { exec evtest "$dev" 2>/dev/null; }
+        while IFS= read -r line <&"${EV[0]}"; do
+            case "$line" in
+                *"type 1 (EV_KEY), code ${TARGET_CODE} ("*", value 1"*)
+                    printf '%s  |  %s\n' "$dev" "$name" > "$TRIGGER"
+                    break ;;
+            esac
         done
-        if grep -qm1 -E "$pattern" "$out" 2>/dev/null; then
-            printf '%s  |  %s\n' "$dev" "$name" > "$TRIGGER"
-        fi
-        kill -TERM "$ev_pid" 2>/dev/null
+        # 关闭读端并显式杀掉 evtest, 防挂起/残留(读端关闭后 evtest 行为不可控)
+        eval "exec ${EV[0]}<&-" 2>/dev/null
+        kill -TERM "$EV_PID" 2>/dev/null
+        wait "$EV_PID" 2>/dev/null
     ) &
     PIDS+=($!)
 done
@@ -98,7 +102,8 @@ while [ ! -s "$TRIGGER" ]; do
         echo "所有监听器已退出，未检测到触发键。" >&2
         exit 1
     fi
-    sleep "$POLL_INTERVAL"
+    # 阻塞 ≤POLL_INTERVAL, bash 内建 read -t, 不 fork
+    IFS= read -r -t "$POLL_INTERVAL" _ <&9 || true
 done
 
 echo "触发键来自: $(<"$TRIGGER")"
