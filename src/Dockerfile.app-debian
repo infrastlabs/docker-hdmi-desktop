@@ -26,9 +26,10 @@ RUN \
 
 # core-debian: +apps
 # deb9-ex: flameshot; left:99.6 MB
+# at-spi2-core 
 RUN apt.sh \
   tzdata locales binutils dconf-cli \
-  dbus-x11 at-spi2-core gtk2-engines-pixbuf \
+  dbus-x11 gtk2-engines-pixbuf \
   apt-utils x11-xkb-utils xdg-utils \
     xfwm4 xfdesktop4 xfce4-notifyd xfce4-settings xfce4-session \
     thunar dunst clipit pasystray pcmanfm lxappearance \
