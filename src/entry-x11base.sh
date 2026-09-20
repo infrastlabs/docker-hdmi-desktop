@@ -333,7 +333,7 @@ managed=true
 [device-eth2]
 managed=true
 EOF
-apt remove -y at-spi2-core
+# apt remove -y at-spi2-core
 
 
 cnt=0.1
