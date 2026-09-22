@@ -1292,6 +1292,45 @@ img.finish()
 | 去掉 LGI 改静态，会影响 b12 吗 | ✅ 绝大部分不影响；⚠️ 两个缺口：**SVG 图标（Rsvg）** 与 **D-Bus 通知（Gio）** |
 | b12 会用到额外三方库吗 | 会用，但都在**外部进程**里（rofi/playerctl/amixer/xbacklight/sh） |
 | 静态编译影响这些三方库吗 | ❌ **不影响**，它们是独立动态程序；唯一受影响的是经 LGI 加载的 **librsvg** |
-| 是否改变 R6 总成本 | ❌ 不改变（缺口见 6.5，Rsvg 单函数面、D-Bus 补丁已计入二·1.2） |
+| 是否改变 R6 总成本 | ❌ 不改变（缺口见 6.5，Rsvg 7 方法 + 1 类型检查见 8.6，D-Bus 补丁已计入二·1.2） |
 | 额外结论 | 用 rofi 则容器须保留 GTK → R6"容器瘦化"空间需按此重估 |
+
+---
+
+## 三、校对与修订记录
+
+> 本文档全部数字均声明"可复现 grep"，因此每次校对都按同样口径对 `/tmp/awsh`（upstream `0a5e50c`）与 b12 原文重跑一遍。本节按时间倒序记录修正项与验证结果。
+
+### 1、2026-09-22 校对修正总结（commit `1e75f97`）
+
+> **结论**：修正 11 处（行号 2、文件数 2、b12 计数 4、交叉引用 1、cairo 普查 1、fixtures 1），其余抽查 20+ 处全部验证无误。
+
+#### 1.1 修正项
+
+| # | 位置 | 错误 → 修正 |
+|----|------|------|
+| 1 | 一·8.6 Rsvg 表 | `border.lua:118` → **119**（`set_stylesheet`） |
+| 2 | 一·8.6 Rsvg 表 | `border.lua:128` → **129**（`render_cairo`） |
+| 3 | 一·8.7 | `:finish()` 涉及 **13 个文件** → **10 个**（次数 18 不变） |
+| 4 | 一·8.7 | `:is_type_of()` 涉及 **5 个文件** → **4 个**（次数 9 不变） |
+| 5 | 二·6.1 | `awful.key` ×34 → **×35** |
+| 6 | 二·6.1 | `awful.spawn` ×10 → **×15** |
+| 7 | 二·6.1 | `require` ×17 → **×18** |
+| 8 | 二·6.1 信号行 | "各 3-4 处" → `connect_signal` ×3、`naughty.connect_signal` ×1、**`emit_signal` ×0**（b12 从未用 emit_signal） |
+| 9 | 二·6.1 D-Bus 行 | 交叉引用 "见 6.4" → **6.3** |
+| 10 | 一·3.2 / 一·8.5 | cairo 普查：28 方法/约 450 处/10 文件 → **49 方法/约 640 处/36 文件**；`translate` ×52、`paint` ×36；`shape.lua` **18** 处、`hierarchy.lua` **15** 处 |
+| 11 | 一·8.2 | fixture 树：`home/.icons` 补 `icon5.png`；"9 个" → **7 个**（3+4，另有 `usr/share/icons` 5 个）；`icons/awesome` 仅 `index.theme`（16x16 等子目录为空） |
+
+#### 1.2 验证无误的关键项（抽查 20+ 处）
+
+- 一·1.2：39 文件 ✓（raw lgi 行 81，去注释 60 合理）
+- 一·3.2 Pango：8 文件 / 25 API ✓（textbox 27 等全部对上；tasklist/prompt/textclock/menubar 那 4 个文件只是 `ensure_pango_color` / docstring，不算直接消费者）
+- 二·1.1 / 1.2 / 1.5：timer.lua 102/104/120 ✓、awesome.c 890/896-897 ✓、luaa.c 241-242 ✓、栈断言 awesome.c 460-464 ✓、dbus.c 24-29（DO NOT USE）与 857 ✓、补丁点 notification.lua:813 / naughty/init.lua:13 ✓
+- 二·4 / 5：menubar 全部锚点 ✓（init.lua:485 ontop wibox、utils.lua:17、icon_theme.lua:15、awesomerc 19/77/252-253、gio 表 9 行行号、GLib 6 函数、files_per_call=100）
+- 二·6.2 / 6.3 / 6.6：b12 的 lgi 0 / Pango 0 / cairo 1@344 ✓、锚点全对、26 文件 cairo ✓、12 个文件计数全对
+- 一·8.3 / 8.4：CMakeLists 449-462 check-unit=busted ✓
+
+#### 1.3 说明：cairo 普查口径
+
+`grep -rhoE 'cr:[a-z_]+'`（去重方法名 49、总调用 640、涉及文件 36）。原"28 方法 / 约 450 处 / 10 个文件"与任何可复现 grep 都对不上，按本文档"可复现 grep"原则修正并注明统计规则。
 
