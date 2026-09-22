@@ -1419,3 +1419,88 @@ img.finish()
 | P4 | 字体/配置运行时边界 | 中 | 未覆盖 | 新增（2.7 同款表述） |
 | ✅1-7 | 正向验证 8 项 | — | — | 可作为静态化验收清单 |
 
+---
+
+### 3、2026-09-22 v4.3 → master（v4.4 DRAFT）变更盘点
+
+> **方法**：把 `/tmp/awsh` 从单提交浅克隆加深（`git fetch --shallow-since=2018-12-01 origin refs/tags/v4.3`）后，本地执行 `git rev-list / shortlog / diff --stat v4.3..HEAD`。提交数 **1751 与 GitHub compare API 的 `total_commits` 精确吻合**，数据可信。
+>
+> **结论**：master（`0a5e50c`，2026-08-28）是**未发布的 v4.4 DRAFT**（`docs/89-NEWS.md` 标题即 "DRAFT ... version 4.4 changes"）。7.5 年共 1751 提交、138 人、909 文件、+76,807 / -10,835 行。与本项目相关的两条：**① Elv13 一人占 53% 提交，坐实 一·6.4 的单作者风险；② `naughty.dbus` 从自带绑定迁到 Gio 就发生在本期**（见 3.6）。
+
+#### 3.1 总量
+
+| 指标 | 数值 |
+|------|------|
+| 时间跨度 | 2019-01-28（v4.3 发布）→ 2026-08-28 |
+| 提交数 | **1,751**（GitHub compare API 同值） |
+| 提交者 | **138 人** |
+| 文件变更 | 909 个，**+76,807 / -10,835 行** |
+| 版本状态 | v4.4 **DRAFT**，无正式 release |
+
+#### 3.2 新增功能（`89-NEWS.md` v4.4 DRAFT 段，行 15-37）
+
+1. `mousegrabber` 可传 `nil` 光标（不改变光标）
+2. `awful.screen` 新增 `request::wallpaper` / `request::desktop_decoration` 信号
+3. 新增 `selection.acquire` / `selection.getter` / `selection.watcher`（剪贴板选择内容交互）
+4. `gears.timer.run_delayed_calls_now()`（手动派发延迟调用）
+5. **`naughty` 重写**（NEWS 中仍是 TODO 未详述；可见的部分在 3.4：`naughty.dbus` 迁移到 Gio）
+6. `awful.spawn.once` / `.single_instance` 的 `rules` 参数变为可选
+7. `wibox.container.background` 新增 `border_strategy`
+8. `wibox.container.margin` 的 `margins` 支持 table
+9. 声明式 widget 语法可直接写函数（不再强制 `{widget = myfunction}`）
+10. tasklist 图标正确缩放
+11. tasklist/taglist 模板自动注入 `client` / `tag`（减少样板代码）
+
+#### 3.3 主要修复（`89-NEWS.md` 行 38-55）
+
+- `awful.rules` 设置 shape 修复
+- sticky 窗口的 `_NET_WM_DESKTOP` 设置修复
+- **X11 被 grab 期间执行 Lua 的潜在死锁**（与 `io.popen` 相关，官方仍强烈建议不用）
+- `wibox{ input_passthrough = true }` 之前只能在已构造的 wibox 上生效，已修
+- 移除多个 widget 构造器的无用首参（`place` / `radialprogressbar` / `stack` / `slider`）
+- `textbox.align` 重命名为 `halign`（一致性）
+
+#### 3.4 行为变更与移除（`89-NEWS.md` 行 56-101）
+
+- **`wibox.container.background.shape_clip` 被移除**（现在恒为 `true` 行为，旧行为可用 `wibox.layout.stack` 模拟）——本期最明确的一处功能移除
+- **`naughty.dbus` 改用 Gio**（NEWS 原文：*"This is a first step in the deprecation of Awesome's own DBus bindings"*）
+- `client.keys` / `client.buttons` 返回 `awful.key` / `awful.buttons` 对象而非底层对象
+- `awful.rules.rules` 赋值改为**追加**语义（不再覆盖）
+- tasklist/taglist 不再是主布局实例，改为 `base_layout` 属性（支持运行时替换）
+- 规则几何计算顺序微调（border 先于 titlebar offset）
+- `client:relative_move()` 的 nil 默认 0；Lua RNG 从好源初始化
+- Pango 最低推荐版本提升到 **1.44**
+
+#### 3.5 主要提交者（v4.3..master，姓名变体已合并）
+
+| 提交者 | 提交数 | 占比 | 身份 |
+|--------|--------|------|------|
+| **Emmanuel Lepage Vallée（Elv13）** | **928**（754+161+13） | **53%** | 现首席维护者 |
+| mergify[bot] | 138 | 8% | 机器人 |
+| Lucas Schwiderski（sclu1034） | 107 | 6% | 核心开发者 |
+| Uli Schlachter（psychon） | 100 | 5.7% | 老牌核心 |
+| Aire-One | 97 | 5.5% | 核心开发者 |
+| actionless（Actionless Loveless） | 49（33+16） | 2.8% | 老牌贡献者 |
+| Daniel Hahler（blueyed） | 24 | | 老牌贡献者 |
+| 蒋慧赟 | 18 | | 中文社区贡献者 |
+| Brian Sobulefsky | 18 | | |
+| Sergey Vlasov / Sergey | 17 | | |
+| Seth Barberee / ArenaL5 / elig0n 等 | 各 ≤14 | | |
+
+其余 113 人合计约 192 提交。**全期口径**（GitHub contributors API）：jd 3816 / Elv13 2015 / psychon 1858 / blueyed 766——jd 是创始人，提交几乎全在 v4.3 之前，故本期由 Elv13 独占。
+
+**与一·6.4 的关系**：一·6.4 只对 oocairo 提了单作者风险；本期数据说明 **awesome 本体当代开发同样高度单点**（Elv13 53%），R6 若押注 upstream 持续维护，需把"维护者单点"计入风险面。
+
+#### 3.6 与 R6 相关：`naughty.dbus` 的迁移时间线
+
+`naughty.dbus` 从 awesome 自带绑定迁到 Gio **就发生在 v4.3 → master 期间**（`89-NEWS.md` 行 66-68 的行为变更）。这解释了二·1.2 看到的现状（`naughty/dbus.lua` 用 `Gio.DBusConnection`，`dbus.c:24` 被标 DO NOT USE）。
+
+**对 R6 的含义**：
+
+| 容器锁定版本 | `naughty/dbus` 走的路 | 砍 Gio 的代价 |
+|------|------|------|
+| v4.3 | 自带 `dbus.c`（**libdbus**） | 与 Gio 无关，砍法完全不同 |
+| master（v4.4 DRAFT） | `Gio.DBusConnection` | 二·1.2 的补丁方案（`notification.lua:813` + `naughty/init.lua:13`） |
+
+本文档按 master 分析（二·1.2 的补丁点只在 master 上成立）。若最终容器决定锁定 v4.3，R6 的 Gio 项反而更小（不涉及 D-Bus 补丁），但会失去 3.2 的新功能并停在 2019 年基线。
+
