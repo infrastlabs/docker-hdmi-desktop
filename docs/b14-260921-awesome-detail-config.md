@@ -154,3 +154,48 @@ grep -c "awful.key" /etc/xdg/awesome/rc.lua   # 粗略 keybinding 数量
 ```
 
 运行时按 `Mod4+s` 打开 hotkeys_popup 帮助面板，其分类列表即权威清单（anhsirk0 方案已删此功能，见第 1 节）。
+
+## 三、Awesome 组件体系：版本、作者与命名参考
+
+> 背景：2026-09-22 补充，内容已对照 GitHub release notes（v4.0/v4.2）、NEWS.md 及 API 文档模块页的 Copyright/Author 字段核实。
+
+### 1、组件引入版本、时间与主要作者（已核实）
+
+| 组件 | 引入版本 | 时间 | 主要作者（文档 Copyright 字段） |
+|------|----------|------|------|
+| `wibox` | 3.1 | 2008-12-12 | Julien Danjou（创始人；3.1-rc1 起 "wibox and image types were added"，statusbar 对象被 wibox 取代） |
+| `naughty` | 3.x 早期 | 2008 | **koniu**（Author: koniu，copyright 2008） |
+| `awful.tooltip` | 3.2~3.3 期间 | 2009 | Sébastien Gross（copyright 2009） |
+| `menubar` | 独立模块 | 2011-2012 | Alexander Yakushev（`menu_gen`/`utils` 原型出自 Antonio Terceiro，2009） |
+| `awful.wibar` | 4.0 | 2016-12-25（v4.0 发布） | Emmanuel Lepage Vallee (elv1313)，copyright 2016 |
+| `awful.popup` | **4.2** | 2017-07-15（v4.2 发布） | Emmanuel Lepage Vallee (elv1313)，copyright 2016 |
+| `awful.titlebar` | 3.x 已有，4.0 重构 | 2015~2016 | 核心团队（Uli Schlachter 等；3.5.2 已有 show/hide/toggle） |
+
+### 2、常见说法修正
+
+- **naughty 作者不是 Julien Danjou**：API 文档明确为 koniu（2008）；Julien 是项目创始人但不写 naughty。
+- **awful.popup 是 4.2 引入，不是 4.3**：v4.2 release notes 原文 "A new popup widget allows to bypass most of the boilerplate code..."；4.3（2019-01）只是继续完善。
+- **awful.wibar 继承自 wibox，不是 awful.popup**：elv1313 曾有"wibar 从 popup 派生"的计划（issue #3599），未实施；4.x 中 wibar 是 wibox 的子类（3.5→4.0 迁移：`awful.wibox{}` → `awful.wibar{}`）。
+- **awful.titlebar 3.x 已存在**：3.5.2 changelog 已有 "awful.titlebar: Add show, hide, toggle functions"；4.0 是 API 重构而非首次引入。
+- wibox 引入时间为 2008-12-12（3.1 正式版），"2008-10" 实为 3.1-rc 阶段。
+
+### 3、命名参考：TWM 圈的"Awesome 方言"
+
+- **wibox = widget + box**：官方口径即"容纳 UI 小组件的盒子"，wibar/awful.popup/awful.tooltip 都是特殊化的 wibox。
+- **出身**：Awesome 2.x 是 dwm 的 fork，继承 dmenu/dwm 式"造词"简洁风格；3.0 起 C+Lua 完全重写，命名风格延续。
+- **对通用概念的方言化**：X11 世界叫 panel/dock/notification-daemon，Awesome 自造 wibox/wibar/naughty，强调"可编程框架"而非现成组件。
+- 同类 TWM 参照系：**xmonad**（`XMonad.Layout/Hooks` 函数式精确）、**i3**（`i3bar/i3status/i3blocks` 直白实用）、**bspwm**（bsp = 二叉空间分割，借算法概念）。Awesome 介于 xmonad 的抽象与 i3 的直白之间，既有 naughty 的拟人俏皮，也有 wibar 的功能直述。
+
+### 4、版本时间线速查
+
+| 版本 | 时间 | 备注 |
+|------|------|------|
+| 3.0 | 2008-09-18 | C+Lua 重写 |
+| 3.1 | 2008-12-12 | wibox 引入 |
+| 3.2 | 2009-03-13 | |
+| 3.4 | 2009-10-20 | |
+| 3.5 | 2012-12-21 | 主题系统大改 |
+| 3.5.9 | 2016-03-06 | 3.x 最后一版 |
+| 4.0 | 2016-12-25 | awful.wibar、API 断代 |
+| 4.2 | 2017-07-15 | awful.popup |
+| 4.3 | 2019-01-31 | |
