@@ -368,3 +368,96 @@ make LDFLAGS="$flags -lXinerama -lX11 -lXxf86vm -lXcursor -lm -ldl -lrt -lXext -
   配合 `config.mk` 里 `sed` 改 `PREFIX`，直接出单文件。
 - **落地顺序建议**：先用路径 ① 在本项目做 dwm（`compile/src/suckless/build.sh` 可直接照抄，`config.mk` + `LDFLAGS` 两处改动），验证"静态 WM 走 xvnc2.sh / entry-x11base.sh 的 perp 服务模式"这条集成链；dwm 通了再考虑 fluxbox/openbox（openbox 需先自编 pango + fontconfig + libXrandr 三个依赖）。
 - **awesome 侧结论不变**：b10 的"全静态不可行"判断被参照仓库的完整落地清单反证强化（见第 0 节 grep 空结果）——同一套成熟方法论，20 多个项目成了，awesome 一个都没做。容器路线仍是 `apk add awesome`，选型优先级 i3 > bspwm > Awesome 不变。
+
+## 三、lgi 及其替代方案的静态编译适配度
+
+> 章节二的硬边界是"lgi→GI→dlopen 链"。但**换掉 lgi** 能不能绕过去？这一节系统评估。
+> 结论先行：**理论上 lgob（静态代码生成）是唯一原生支持静态的方案，但项目已不活跃；换成 LuaGObject 是维护性升级路径但对静态化收益为 0（仍是动态 GI）；LGI 自称支持静态链接但工程上仍需运行时 GI。综合来看，即便替换绑定层，awesome 全静态仍不可行——工程代价 ≈ 重写半个 awesome，且没有任何一个社区 fork 走这条路。**
+
+### 1、lgi 是什么：技术角色
+
+lgi 是 AwesomeWM 的**核心 Lua 绑定层**，基于 gobject-introspection（GI）自动生成 Lua 对 C 库的调用接口。它把 C 库几乎所有功能自动暴露给 Lua，无需手写胶水代码。
+
+**面向对象风格转换**：C 的函数式 API 被映射为 Lua 命名空间 + 对象方法。例：C 的 `cairo_line_to(cr, x, y)` 在 lgi 中写作 `cr:line_to(x, y)`。
+
+**主要优势**：
+
+- 开发效率高：不用为每个 C 函数手写绑定
+- 功能覆盖广：自动暴露 GI 已覆盖的 C 库几乎所有功能
+- OOP 风格：更符合 Lua 生态习惯
+
+**代价**：
+
+- 文档不集中：lgi 的 Lua 侧文档零散，通常需查 C 库原文档
+- 稳定性风险：直接调底层 API，参数/返回值处理不当会崩溃
+
+### 2、lgi 项目现状
+
+| 项 | 值 |
+|---|---|
+| 官方仓库 | https://github.com/lgi-devs/lgi （原 pavouk/lgi 已重定向） |
+| 起始年份 | 2010（Pavel Holejšovský 发起） |
+| 核心贡献者 | Uli Schlachter、Jasper Lievisse Adriaanse 等 43+ 开发者 |
+| 许可证 | MIT |
+| Lua 版本支持 | 5.1 / 5.2 / 5.3 / LuaJIT2 完整支持；5.4 仅**实验性** |
+| 版本历史（LuaRocks） | 0.2（2011）→ 0.7.2 → **0.9.2（2017-10-09，最后正式版）** |
+| 近 5 年 release 数 | **0**（最后一次正式 release 已 9 年） |
+| 近 1 年活跃开发者 | 约 4 名 |
+| 2026-09 Star 数 | ~297（近似值） |
+
+**判定**：LGI 主仓库**已基本停止维护**，仅零星合并 bugfix。这本身就是一个风险信号——awesome 的核心依赖无人接盘。
+
+### 3、替代方案对比矩阵
+
+| 项目 | 绑定方式 | 维护状态 | 静态编译支持 | 关键备注 |
+|------|---------|---------|-------------|---------|
+| **LGI** | 动态 GI | ⚠️ 基本停滞 | 官方开发包（`lua-lgi-dev`）声明支持静态链接二进制 | 主仓库；awesome 官方绑定 |
+| **LuaGObject** | 动态 GI（GIRepository 2.0） | ✅ **活跃维护** | 需手动嵌入：把 Lua 编译成字节码，再用 C 侧 `luaL_loadbuffer` 静态嵌入 | 精神续作；V. Lacroix fork；GTK4/libadwaita/Lua 5.4/5.5；**GNOME 49+ 刚需**；LGI 旧测试全通过，迁移成本低 |
+| **lgob** | **静态代码生成**（.gir → C 胶水） | ⚠️ 已不活跃 | **原生设计**——设计上就是静态绑定 | 唯一原生支持静态的方案；灵活度不如动态绑定 |
+| **LuiGI** | 动态 | ❌ 已废弃 | 无 | 作者已建议改用 LGI 或后续者 |
+| **Lua-Gnome / Lua-GTK** | 静态（推测） | ❌ 早已停维 | 理论可行但依赖极老 | 面向 GTK+ 2.x，仅适用极老旧系统 |
+| **lgui** | 未声明 | 未知 | 未声明，但构建简单（`lua make.lua build`） | 轻量 GTK2 绑定，未明确静态支持 |
+| **keybinder** | 静态实验 | 未知 | 需手动指定 Lua 头文件路径 | 特殊用途（按键绑定） |
+| **wxLua** | 非 GTK | 活跃 | 理论可自编静态版 | 通过 wxWidgets 跑在 GTK2 之上，非直接 GTK2 绑定 |
+
+**读表结论**：
+
+- **动态 vs 静态的轴**：LGI / LuaGObject / LuiGI 走动态；lgob / Lua-Gnome / lgui 走静态
+- **维护性 × 静态化的交叉点只有 lgob**，但 lgob 本身不活跃
+- LuaGObject 是"最活跃"的选项，但对静态化几乎零贡献（动态绑定 + 需要手动嵌入字节码才能"嵌入"到 C 程序，这跟"静态链接 Lua 库"是两回事）
+
+### 4、GTK2 目标环境的静态绑定方案（补充）
+
+如果你的目标环境是 **GTK+ 2.x**（很多老项目/嵌入式环境的默认选择），静态绑定可选面稍宽：
+
+| 项目 | 适配度 | 备注 |
+|------|--------|------|
+| lgob | 🥇 首选 | 支持 GTK+ 2.6+，静态设计最原生 |
+| LuaGnome | 🥈 | 针对老 GTK2；库文件仅约 350 kB；`glib 2.x / gdk / gtk 2.x` 覆盖完整 |
+| lgui | 🥉 | 轻量级 GTK2 绑定，构建简单但未声明静态 |
+| keybinder | 特殊 | 含实验性静态 Lua 绑定，需手动指定 Lua 头文件 |
+| wxLua | 间接 | 通过 wxWidgets 跑在 GTK2 之上 |
+
+### 5、对 awesome 静态化结论的影响
+
+即便存在"能静态编译的 lgi 替代品"（lgob），awesome 全静态**依然不可行**，工程理由如下：
+
+1. **awesome 代码对 lgi 的深度耦合**：`lib/` 下 51/170 文件直接 `require("lgi")`（30%），`lib/gears/init.lua` 一次性加载 16 个子模块全部依赖 lgi，`common/version.c:51` 甚至在**版本查询**路径上都要 lgi。**替换绑定层等于改 awesome 源码 50+ 处**。
+2. **lgob 本身已不活跃**：项目本身没有长期维护承诺，作为依赖引入是给自己挖坑；awesome 上游也不会官方采用。
+3. **LGob 只是绕开了 GI 运行时，但没绕开实际的图形库链接**：C 胶水代码生成后仍要 `-lX11 -lCairo -lPango` 等；这些库要静态化，回到章节二的 `--start-group` 难题——而 Pango / Fontconfig / Harfbuzz / Freetype 静态链接是 openbox 参照仓库里已经踩过坑的一步（需自编 pango + fontconfig + libXrandr），工程复杂度不低。
+4. **LuaGObject 是维护升级路径但对静态化无益**：它是"动态 GI + 新仓库 2.0"，解决的是"新 GNOME 兼容"，不解决"静态链接"。awesome 换到 LuaGObject 之后，仍然需要 dlopen 每个 C 库，跟当前 lgi 状态相同。
+5. **没有任何 awesome fork 走这条替换路径**：b15 章节一排查了 626 个 fork，7 个有实质开发的 fork 分别是 Lua→Luau、Skia 后端、Lua 5.5、CI 等方向，**没有一个在尝试替换 lgi**。这本身就是行业共识——没人觉得这条路值得走。
+
+### 6、路径判断（更新版）
+
+原章节二的三条路径不变，此处补上**第四条路径**（换绑定层路线）并给出统一判断：
+
+| 路径 | 代价 | 静态化收益 | 结论 |
+|------|------|----------|------|
+| ① 照搬参照仓库做 dwm/openbox 静态版 | 低 | 高 | **推荐** |
+| ② awesome 半静态（静态 liblua + 动态 lgi/GI） | 中 | 对容器 ≈ 0 | 无意义 |
+| ③ awesome 全静态（保留 lgi） | 极高 | 不可行 | **不可行** |
+| ④ awesome 换 lgob / LuaGObject 静态版 | 极高（≥ 重写） | 即使可行也需自编 pango 栈 | **工程上不可行** |
+
+**最终判断**：awesome 的四条静态化路径全部不划算。容器路线仍是 `apk add awesome`（动态 + lgi + GI）；如果目标是"容器里跑静态 WM"，直接走路径 ① 换 dwm/openbox，不要试图改造 awesome。
+
