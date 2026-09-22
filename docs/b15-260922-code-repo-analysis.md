@@ -471,20 +471,20 @@ lgi 是 AwesomeWM 的**核心 Lua 绑定层**，基于 gobject-introspection（G
 
 **Lua 图形生态实测数据（2026-09-20）**：
 
-| 项目 | GitHub | ⭐ / Fork | 静态支持 | 最近 push | 说明 |
-|------|--------|-----------|---------|----------|------|
-| **LÖVE** | [love2d/love](https://github.com/love2d/love) | **8765** / 645 | ✅ `./configure --enable-static --disable-shared` | **2026-09-20** | Lua 图形生态的**事实标准**；基于 SDL2 全静态；比 LGI 大 18 倍 |
-| **Defold** | [defold/defold](https://github.com/defold/defold) | **6308** / 455 | ⚠️ 主要产平台应用包（APK/IPA），非传统静态二进制 | **2026-09-22** | 引擎生态最活跃之一 |
-| **Lua-bgfx** | [cloudwu/lua-bgfx](https://github.com/cloudwu/lua-bgfx) | **247** / 42 | ✅ 需先编 bgfx 静态库再编绑定 | 2024-05 | 直接手写 C 绑定，无 GI 反射 |
-| **lua-lpugl** | [osch/lua-lpugl](https://github.com/osch/lua-lpugl) | 35 / 1 | ✅ 底层用 nanovg + oocairo + luagl，天然静态 | **2026-07** | 极简 GUI API |
-| **oocairo** | [awesomeWM/oocairo](https://github.com/awesomeWM/oocairo) | 25 / 10 | ✅ 纯 C 手写绑定 | 2025-08 | **注：归属 awesomeWM 组织**——上游自身也在维护非 GI 的 Cairo 绑定 |
-| **IUP (iuplua)** | [iup.org](http://www.tecgraf.puc-min.br/iup/)（GitHub 无官方主仓库） | — | ✅ 原生支持（Windows 需 `ole32.lib`；GTK 按序 `-lgtk-x11-2.0 -lgdk-x11-2.0`） | 独立托管 | 老牌 GUI 库，静态友好 |
-| **wxLua** | [pkulchenko/wxlua](https://github.com/pkulchenko/wxlua) | 357 / 60 | ✅ `RUNTIME_LIBS=static` + CMake | **2026-09-19** | 见章节三 3、 |
-| **LuiGI** | — | — | ❌ 作者建议改 LGI | — | 已弃用 |
-| **LuaGnome** | 无 GitHub 官方仓库 | — | 库仅 ~350 kB | — | 仅存历史归档 |
-| **pastel2d** | [andrenho/pastel2d](https://github.com/andrenho/pastel2d) | 1 / 0 | ✅ SDL3 + LuaJIT，示例仅 1.4 MB | 2025-05 | 极新极小，尚未验证生产可用性 |
-| **LÖVR** | GitHub 上 404 | — | 未明确 | — | 用户提供的 1.9k★ 未找到对应仓库 |
-| **lua-cairo** | GitHub 上 404 | — | 未明确 | — | 用户提及，仅存 LuaRocks |
+| 项目 | GitHub | ⭐ / Fork | 语言 | 静态支持 | 最近 push | 说明 |
+|------|--------|-----------|------|---------|----------|------|
+| **LÖVE** | [love2d/love](https://github.com/love2d/love) | **8765** / 645 | C++（核心）+ Lua（脚本） | ✅ `./configure --enable-static --disable-shared` | **2026-09-20** | Lua 图形生态的**事实标准**；基于 SDL2 全静态；比 LGI 大 18 倍 |
+| **Defold** | [defold/defold](https://github.com/defold/defold) | **6308** / 455 | C++（引擎）+ Lua（脚本） | ⚠️ 主要产平台应用包（APK/IPA），非传统静态二进制 | **2026-09-22** | 引擎生态最活跃之一 |
+| **Lua-bgfx** | [cloudwu/lua-bgfx](https://github.com/cloudwu/lua-bgfx) | **247** / 42 | Lua | ✅ 需先编 bgfx 静态库再编绑定 | 2024-05 | 直接手写 C 绑定，无 GI 反射 |
+| **lua-lpugl** | [osch/lua-lpugl](https://github.com/osch/lua-lpugl) | 35 / 1 | C | ✅ 底层用 nanovg + oocairo + luagl，天然静态 | **2026-07** | 极简 GUI API |
+| **oocairo** | [awesomeWM/oocairo](https://github.com/awesomeWM/oocairo) | 25 / 10 | C | ✅ 纯 C 手写绑定 | 2025-08 | **注：归属 awesomeWM 组织**——上游自身也在维护非 GI 的 Cairo 绑定 |
+| **IUP (iuplua)** | [iup.org](http://www.tecgraf.puc-min.br/iup/)（GitHub 无官方主仓库） | — | C（iuplua 是 Lua 绑定层） | ✅ 原生支持（Windows 需 `ole32.lib`；GTK 按序 `-lgtk-x11-2.0 -lgdk-x11-2.0`） | 独立托管 | 老牌 GUI 库，静态友好 |
+| **wxLua** | [pkulchenko/wxlua](https://github.com/pkulchenko/wxlua) | 357 / 60 | C++（wxLua）+ Lua（脚本） | ✅ `RUNTIME_LIBS=static` + CMake | **2026-09-19** | 见章节三 3、 |
+| **LuiGI** | — | — | — | ❌ 作者建议改 LGI | — | 已弃用 |
+| **LuaGnome** | 无 GitHub 官方仓库 | — | C（历史项目） | 库仅 ~350 kB | — | 仅存历史归档 |
+| **pastel2d** | [andrenho/pastel2d](https://github.com/andrenho/pastel2d) | 1 / 0 | C（+ LuaJIT） | ✅ SDL3 + LuaJIT，示例仅 1.4 MB | 2025-05 | 极新极小，尚未验证生产可用性 |
+| **LÖVR** | GitHub 上 404 | — | — | 未明确 | — | 用户提供的 1.9k★ 未找到对应仓库 |
+| **lua-cairo** | GitHub 上 404 | — | — | 未明确 | — | 用户提及，仅存 LuaRocks |
 
 **校对修正**：
 - LÖVE 实际 **8765★**（用户提到 4.8k 低估近一半）
