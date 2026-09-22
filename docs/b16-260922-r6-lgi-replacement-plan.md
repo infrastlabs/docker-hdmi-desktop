@@ -447,3 +447,120 @@ if (lua_gettop(L) != 0) {
 | 砍 dbus.lua | "省 Gio" | ⚠️ **需补丁 2 处 require** | `notification.lua:813`、`naughty/init.lua:13` |
 | Gio 人天 | 10-20 | **2-4** | 真实成本是链接链，砍掉即省依赖树 |
 | **R6 合计** | 35-45 | **25-40** | — |
+
+---
+
+### 9、GTK3 降级的真实影响面
+
+> 3.5 判"GTK3 零成本砍掉"。本节展开砍掉后的真实影响面，并纠正一个常见误解：**不会 fallback 到 GTK2**。
+
+#### 9.1 没有 GTK2 fallback
+
+全仓库搜 `Gtk 2` / `GTK2` / `gtk-2`，唯一命中是 `tests/_client.lua:35` 的一句测试注释：
+
+```lua
+-- This requires Gtk3, but fails with an obscure message with Gtk2.
+```
+
+`lib/beautiful/gtk.lua:74` 是硬编码：
+
+```lua
+return lgi.require('Gtk', '3.0')
+```
+
+**无版本探测、无 try-GTK2 分支。砍掉 GTK3 = 二进制里彻底没有 GTK，不是降级到 GTK2。**
+
+补充：`CMakeLists.txt` 搜 `gtk` **零命中**——GTK 从来不是构建期依赖，只是运行时通过 lgi `dlopen`。静态版不需要链接任何 GTK 库，**砍掉让二进制更小**。
+
+#### 9.2 WM 本体不用 GTK 主题
+
+| 东西 | 实现 | 依赖 |
+|------|------|------|
+| 窗口边框 / 标题 / 标签条方块 | `lib/beautiful/theme_assets.lua` 生成 vector assets | `lgi.cairo` |
+| 全部渲染 | `gears/surface.lua`、`wibox/*` | cairo |
+| **图标主题识别** | `lib/menubar/icon_theme.lua:63-76` 自己遍历文件系统找 `Adwaita`/`gnome`/`hicolor` 的 `index.theme` | `lgi.GLib` |
+| naughty 通知 | `lib/naughty/notification.lua` cairo 绘制 | 零 GTK 引用 |
+| awful.completion / prompt | — | 零 GTK 引用 |
+
+**图标主题识别不依赖 GTK 的 `IconTheme` API**——它直接扫 `~/.icons` / `/usr/share/icons` 的文件系统结构。这条容易搞错。
+
+#### 9.3 主题识别机制与 GTK 无关
+
+容易混淆：`beautiful.gtk` 听起来像主题系统的一部分，但它不是。
+
+**主题识别机制**是 `beautiful.init(path)` 加载一个 Lua 文件，把 `theme.xxx = yyy` 的赋值挂到 beautiful 表上——**纯 Lua 文件加载 + 表操作，零 GTK**。
+
+证据：`lib/beautiful/init.lua` 搜 `gtk` 只有 4 处：
+
+```
+25:  local gtk = require("beautiful.gtk")
+30:      gtk = gtk,                                  ← 挂到返回的 table
+43:  --- Get GTK+3 theme variables ...                ← 文档
+88:  -- @staticfct beautiful.gtk.get_theme_variables  ← 文档注解
+```
+
+**没有任何生产代码调用 `gtk.get_theme_variables()`**——它只是作为 `beautiful.gtk` 字段暴露给**用户 rc.lua 手动调用**。
+
+#### 9.4 那 40+ 个 GTK 主题变量到底是什么
+
+一个可选的"跟随系统主题"桥，把 GTK CSS 属性读出来映射成 beautiful 变量：
+
+| 类别 | 数量 | 例子 |
+|------|------|------|
+| 颜色 | 40 | `bg`/`fg`/`base`/`text`/`selected`/`button`/`header_button`/`menubar`/`osd`/`tooltip` 各一组，加 `error`/`warning`/`success` |
+| WM 专属 | 6 | `wm_border_focused/unfocused`、`wm_title_focused/unfocused`、`wm_icons_focused/unfocused` |
+| 字体 | 2 | `font_family`、`font_size`（含 `GDK_SCALE` + Xresources DPI + pt-to-px 换算） |
+| 圆角 | 2 | `button_border_radius`、`button_border_width` |
+
+#### 9.5 砍掉后的真实影响面
+
+| rc.lua 写法 | 影响 |
+|-------------|------|
+| `beautiful.init(".../default.lua")` + 显式设颜色/字体 | ✅ **零影响** |
+| 手动调 `beautiful.gtk.get_theme_variables()` 跟随系统主题 | ❌ **崩在用户代码** |
+
+第 2 种的崩溃点要说清楚：`gtk.lua` 内部两层 pcall 只保护"加载 Gtk"和"创建 Window"，**函数本身返回 nil**。真正崩的是调用方：
+
+```lua
+local vars = beautiful.gtk.get_theme_variables()   -- nil
+beautiful.bg_normal = vars.bg_color                 -- 崩：attempt to index nil
+```
+
+所以 shim 里让 `lgi.require('Gtk')` 恒返回 nil 是安全的（函数优雅返回 nil），但**用户 rc.lua 必须能处理 nil**。
+
+**结论**：砍掉 GTK3 不会让 awesome 崩，只会让"跟随 GTK 主题"的 rc.lua 崩。
+
+#### 9.6 其他连带影响
+
+**① 字体 DPI 自动适配丢了，但有替代路径**
+
+`gtk.lua` 里的 `GDK_SCALE` + Xresources DPI + pt-to-px 换算逻辑没了，但两条替代不依赖 GTK：
+
+- `lib/beautiful/xresources.lua` 的 `get_dpi()`（读 Xresources 的 `Xft.dpi`）
+- `lib/awful/screen/dpi.lua:228` 的 `_get_xft_dpi()`
+
+需 DPI 适配时在 rc.lua 里自己写 `font_size = 默认值 * dpi/96`。
+
+**② menubar 彻底没戏**
+
+`lib/menubar/menu_gen.lua` 依赖 Gtk menubar 协议 + Gio。砍 GTK3 后无法工作——但本文本来就建议砍整个 menubar（Gio 也是它依赖的），两个一起砍正好。
+
+**③ 用户自定义 widget 里用了 `Gtk.*` 的会失效**
+
+这是用户代码，不是 awesome 本体。
+
+#### 9.7 小结：3.5 的"0 人天"成立，但表述需要修正
+
+3.5 原文写"只是不再能读取 GTK 主题颜色变量"。更精确的表述：
+
+| 项 | 结果 |
+|----|------|
+| WM 本体渲染 | ✅ 零影响 |
+| 主题识别（`beautiful.init`） | ✅ 零影响 |
+| 图标主题识别（hicolor / Adwaita） | ✅ 零影响 |
+| naughty 本地通知 / awful.completion | ✅ 零影响 |
+| **rc.lua 主动跟随 GTK 主题** | ❌ 崩在用户代码，需补 nil 保护 |
+| **GTK 主题的 DPI 自动换算** | ⚠️ 需改用 `xresources.get_dpi()` |
+| menubar | ❌ 连带失效（本来就计划砍） |
+
+对这个项目：容器里大概率没有桌面环境也没有 GTK 主题，这条路径本来就不会走。**砍掉是纯收益，0 人天成立。**
