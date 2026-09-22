@@ -219,7 +219,11 @@ if not _gtk_status or not Gtk then
 end
 ```
 
-shim 里 `lgi.require` 恒返回 `nil`，已有的 `print_warning` + `return nil` 路径自然走通，上层调用方全部对 `nil` 有容错。**0 人天，零改动。**
+shim 里 `lgi.require` 恒返回 `nil`，`gtk.lua` 内部两层 pcall 走 `print_warning` + `return nil` 路径，**函数优雅返回 nil，awesome 本体不崩**。
+
+⚠️ 但这不等于"上层调用方全部对 nil 有容错"。`gtk.get_theme_variables()` 返回的 nil 只在**用户 rc.lua 主动跟随 GTK 主题**时被用到，此时崩点是用户代码里 `vars.bg_color` 索引 nil；另有 DPI 自动换算丢失、menubar 连带失效等影响——**精确影响面详见 9、**。
+
+**0 人天，零改动。**
 
 #### 3.6 GdkPixbuf：0-2 人天
 
@@ -333,6 +337,9 @@ R4  换 LuaGnome        :120-240   不可行
 
 ### 8、源码实测校正：GLib 与 Gio
 
+> **提问原文**：
+> 最小替换集：cairo + Pango + GLib + Gio 四模块，外加砍掉 GTK3。真正没现成方案的是 GLib 主循环 和 Gio——这两个加起来是 R6 的成本主体。两个当前细节是怎么处理的？降级有哪些影响？会有什么隐患？
+>
 > 3.3 / 3.4 的人天与方案在拿到上游 `0a5e50c` 源码后做了实测校正。本节目的是**说明原文那两处错在哪**，以及砍 Gio 的真实代价。
 
 #### 8.1 GLib：绑定面比"5 个函数"小一个量级
@@ -452,6 +459,11 @@ if (lua_gettop(L) != 0) {
 
 ### 9、GTK3 降级的真实影响面
 
+> **提问原文**：
+> gtk3降级砍掉。也就是说静态版 awesome 里砍掉 GTK3 不会崩，只是不再能读取 GTK 主题颜色变量——这是一个可接受的降级。这个砍掉之后，会用gtk2? 有没其他的什么影响？
+>
+> **追问原文**：主题的识别还能用吗？本身窗口管理器应该用不到gtk主题吧？
+>
 > 3.5 判"GTK3 零成本砍掉"。本节展开砍掉后的真实影响面，并纠正一个常见误解：**不会 fallback 到 GTK2**。
 
 #### 9.1 没有 GTK2 fallback
