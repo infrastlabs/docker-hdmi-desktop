@@ -279,10 +279,13 @@ Bastien Dejean 创建；自身不处理键盘/鼠标输入，热键完全委托 
 - [michaelbeaumont/awesome-leaved](https://github.com/michaelbeaumont/awesome-leaved)
 - [RobSis/treesome](https://github.com/RobSis/treesome)
 - tint2 主题：[addy-dclxvi/tint2-theme-collections](https://github.com/addy-dclxvi/tint2-theme-collections)（32 套）、[MerkeX/tint2-theme-collections](https://github.com/MerkeX/tint2-theme-collections)（备份）、[FanMclaine/Drecked-Tint2-Themes](https://github.com/FanMclaine/Drecked-Tint2-Themes)（Catppuccin）
+- [jcrd/dovetail](https://github.com/jcrd/dovetail)（Lua 平铺 WM，2022 年 archived）
+- [lab1702/larswm](https://github.com/lab1702/larswm)（C 平铺 WM，2019 年 archived，非 Lua）
+- AUR 归档 `fluxbox-lua-git`（Fluxbox Lua 脚本钩子，已废弃）
 - 相关：treesome 讨论区、r/unixporn、[gh0stzk/dotfiles](https://github.com/gh0stzk/dotfiles)（bspwm 18 主题）
 - 本项目：docs/b10-260918-awesome-musl-static.md（Awesome 在 Alpine/musl 下的编译分析）
 
-## 十二、成熟度梯队与单独支持 Awesome 的发行版
+## 十二、成熟度梯队、单独支持 Awesome 的发行版与 Lua 平铺 WM 生态现状
 
 > 补充于 2026-09-20：承接上文"定位/选型"，补充各 WM 的成熟度分档，以及哪些发行版把 Awesome 当作默认桌面。
 
@@ -331,7 +334,41 @@ Bastien Dejean 创建；自身不处理键盘/鼠标输入，热键完全委托 
 
 结论：最接近"开箱即用 Awesome"的是 **Manjaro Awesome CE** 或 **ArcoLinux Awesome**；否则 Arch/Debian 装 `awesome` 包 + 抄配置（如 anhsirk0/awesome-config，见 b12）；NixOS 一行 `services.xserver.windowManager.awesome.enable = true` 也能配出。
 
-### 3、对本项目的影响
+### 3、除了 Awesome，还有别的 Lua 配置平铺 WM 吗？
+
+> 补充于 2026-09-22：GitHub API 实测核查。**结论：没有第二个"活的"。第一章"偏 Lua：Awesome 是唯一选择"的判断成立，且可以写得更绝对。**
+
+#### 3.1 候选核查结果
+
+| 候选 | 状态 | 实测依据（2026-09-22） |
+|------|------|------|
+| [awesomeWM/awesome](https://github.com/awesomeWM/awesome) | ✅ 唯一活跃 | 6960 stars，last push 2026-08-28 |
+| [Ion](https://en.wikipedia.org/wiki/Ion_(window_manager)) 2.x | ❌ 已死 | 2009 年停更，无 GH 官方仓库 |
+| luaxm（纯 Lua X11 WM） | ❌ 已消失 | `neovim/luaxm`、`spectrwm/luaxm` 等仓库全 404，GitHub 搜索无果 |
+| neovim-tui（Neovim 的 Lua X11 WM） | ❌ 已消失 | `neovim/neovim-tui`、`neovim/tui`、`nv-tui/neovim-tui` 全 404 |
+| dasm | ❌ 已消失 | `dasm/dasm`、`johnparker/dasm` 等全 404 |
+| Notion WM（Lua 脚本钩子） | ❌ 仅剩第三方脚本 | `ptman/notion-scripts`（2015 停更）、`meribold/notion-hide-tabs`（2015 停更），主仓库找不到 |
+| [larswm](https://github.com/lab1702/larswm) | ❌ 且非 Lua | 1 star、**C 语言**、2019 年 archived |
+| [jcrd/dovetail](https://github.com/jcrd/dovetail) | ❌ 已废弃 | Lua，3 stars，2022-03-12 archived |
+
+即：Lua 这条路上的历史选手（luaxm / neovim-tui / dasm / Notion）全部消失，Ion 2009 年停更，只剩 Awesome。这也解释了第四章为什么 Awesome 的定制案例只有 34 个——不是没人用，而是"想要 Lua 方案但 Awesome 不合适"的人没处可去。
+
+#### 3.2 两个容易被误认的"伪 Lua"
+
+| WM | 真相 |
+|----|------|
+| [conformal/spectrwm](https://github.com/conformal/spectrwm) | 1410 stars、C、last push **2026-07-20**（仍在维护）。但 README 原话是 *"does not require one to learn a language to do any configuration"*，用人类可读文本配置，**刻意反 Lua**；在 `spectrwm.c` 中 grep `lua` 仅命中 `valuators_len` 的误匹配 |
+| Hyprland | 见本文第十三章纠错清单：实为 hyprlang + C++ 插件 API，无 Lua |
+
+边缘信号：AUR 归档中的 `aur-archive/fluxbox-lua-git`（2015）曾给 Fluxbox 加过 Lua 脚本钩子，但已进入 AUR archive，等于官方放弃。
+
+#### 3.3 选型含义
+
+- 想要"可编程配置"而非文本配置 → 唯一现成替代是 **Qtile（Python）**，即第一章"与 Awesome 定位最接近"的那款；Lua 侧无第二选择。
+- 容器路线不变：i3 > bspwm > Awesome；Alpine/musl 上 Lua 方案只有 `apk add awesome` 一条活路（见 b10），依赖链最重。
+- 本节核查同时记录两处数据刷新（保留前文 2026-09-18 快照原值不动）：Awesome 星标现值 **6960**（前文快照 ~6.4k）；spectrwm last push 实测 **2026-07-20**（比前文"约 3 个月前"更活跃）。
+
+### 4、对本项目的影响
 
 - 上文（十一）已指出 Awesome 依赖链最重（Lua + LGI + GTK 生态）、与容器"开箱即用"契合度低于 i3；本节的发行版调查进一步印证：Awesome 生态高度依赖各发行版分发打包，缺少自己的发行版背书，选型优先级维持 i3 > bspwm > Awesome 不变。
 
