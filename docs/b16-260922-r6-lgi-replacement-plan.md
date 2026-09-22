@@ -1334,3 +1334,88 @@ img.finish()
 
 `grep -rhoE 'cr:[a-z_]+'`（去重方法名 49、总调用 640、涉及文件 36）。原"28 方法 / 约 450 处 / 10 个文件"与任何可复现 grep 都对不上，按本文档"可复现 grep"原则修正并注明统计规则。
 
+---
+
+### 2、2026-09-22 静态编译可用性走查（源码 + docker-x11base 先例对照）
+
+> **方法**：对 `/tmp/awsh`（upstream `0a5e50c`）的 C 内核与 `lib/` 全目录做**动态加载机制**排查（dlopen / 模块 / 外部进程 / 运行时数据文件），并与 docker-x11base 的静态构建先例（`v-pcmanfm` / `v-yad` / `v-openbox`）逐一对照。
+>
+> **结论**：发现 **4 个文档未覆盖的隐患**（P1-P2 高、P3-P4 中），另有 8 项验证无问题。所有结论均为源码 grep 或先例脚本实测，不是推测。
+
+#### 2.1 正向验证（无问题项）
+
+| # | 项 | 证据 | 说明 |
+|----|------|------|------|
+| ✅1 | C 内核零动态加载 | 全仓 `dlopen/dlsym/system/popen` 零命中（唯一 "system" 是 `dbus.c:520` 的函数名 `a_dbus_process_requests_system`，非调用） | 静态编译无隐藏 dlopen 分叉 |
+| ✅2 | Lua 层零三方 C 模块 | `lib/` 全目录无 `lfs/posix/cjson/bit/luarocks` | 纯 Lua + awesome 自带 C，Lua 侧无额外依赖 |
+| ✅3 | xcb 扩展全部静态 + 运行时探测 | 12 个扩展：randr/xinerama/xkb/xtest/xfixes/shape/icccm/event/aux/keysyms/cursor/bigreq；`awesome.c:759-762` 对 xtest 做 `query->present` 检查 | 缺失扩展优雅降级，不依赖 dlopen |
+| ✅4 | xrdb 内置，无需外部二进制 | `awesome.xrdb_get_value` 是 C 函数直接读 `RESOURCE_MANAGER` X 属性（`beautiful/xresources.lua:55,92-93`、`awful/screen/dpi.lua:230`） | b12 依赖清单里的 xrdb 可划掉 |
+| ✅5 | spawn 本体是 C 函数 | `awful/spawn.lua:353` → `capi.awesome.spawn(cmd, enable_sn)`（fork/exec）；GioUnix 输出捕获已计入 一·8.7 | 静态友好 |
+| ✅6 | 默认 `awesomerc.lua` 零 lgi；GSettings 零使用 | grep 实测 | — |
+| ✅7 | `io.popen` 仅 2 处，全在 `awful/completion.lua`（bash 补全） | `completion.lua:39,157`，跑外部 `bash`/`sort` | 属运行时依赖，非静态问题 |
+
+#### 2.2 P1：gdk-pixbuf 加载器（高）——3.6 的"仅一处"不完整
+
+**文档 3.6 写"仅 `lib/gears/surface.lua:54` 一处"——C 内核还有 3 个直接消费者**：
+
+| 位置 | 调用 | 角色 |
+|------|------|------|
+| `draw.c:184` | `gdk_pixbuf_new_from_file(path, error)` | C 侧图片加载（`luaA_load_image`，luaa.c:340） |
+| `draw.c:85-91` | `draw_surface_from_pixbuf(GdkPixbuf*)` | pixbuf → cairo surface 转换 |
+| `luaa.c:314` | `luaA_pixbuf_to_surface` | `surface.lua:54` 的落点（`pixbuf._native` → surface） |
+
+**真正的隐患是加载器机制**：动态 gdk-pixbuf 的 PNG/JPEG/XPM 加载器是 dlopen 模块（`/usr/lib/gdk-pixbuf-2.0/*/loaders/*.so` + `gdk-pixbuf.loaders` 注册表）。静态链接 gdk-pixbuf 后若不内建加载器，**所有 PNG 壁纸/图标加载失败**（报 "unrecognized image file format"）。
+
+**解法先例（docker-x11base 已落地）**——`compile/src/_ex/yad/build.sh:166-176`：
+
+```
+-Ddefault_library=static -Dpng=enabled -Dtiff=disabled -Djpeg=disabled
+-Dbuiltin_loaders=png -Dgio_sniffing=false -Dnative_windows_loaders=false
+-Dintrospection=disabled -Dman=false -Drelocatable=false ...
+```
+
+**影响**：这属于"GdkPixbuf 0-2 人天"之外的静态链接工程项，且 3.6 的调用面描述需修正（C 侧 3 处 + Lua 1 处）。
+
+#### 2.3 P2：pango 模块机制（高）——Alpine 无 pango-static，需自建
+
+动态 pango 的 pangoft2 后端是模块（`pango.modules` 文件 + dlopen）。且 **Alpine 官方仓库没有 pango-static 包**——docker-x11base 的 openbox 脚本注释原文：
+
+> "The static library is not provided by Alpine repository, so we need to build it ourself."
+
+**先例**——`compile/src/v-openbox/build.sh:115-137`：pango 从源码 meson 构建，`-Ddefault_library=static -Dintrospection=disabled`，依赖 **fribidi-static / harfbuzz-static**（脚本注释列出）。
+
+**文档 8.4 已把 pango 列入静态链，但缺两点**：① 模块机制需要显式禁用/内建；② Alpine 无现成静态包，pango/fribidi/harfbuzz 三件套都要自建（harfbuzz-static 有官方包，pango/fribidi 需自建）。
+
+#### 2.4 P3：libstartup-notification（中）——5.3 配方漏了 -lsn
+
+`awful.spawn` 的 `enable_sn` 参数（启动通知，任务栏启动动画）走 C 侧 libsn：
+
+- `spawn.c:68-76`：`sn_startup_sequence_unref` / `SnStartupSequence_array_t sn_waits`
+- `awesome.c:797`：`spawn_init()`；`objects/client.c:2264`：`spawn_start_notify`
+- `awful/spawn.lua:353`：`capi.awesome.spawn(cmd, enable_sn)`
+
+**静态链需加 `-lsn`**（libstartup-notification，依赖 xcb-icccm 已有）。文档 5.3 配方（`-lgio-2.0 -lgobject-2.0 ... -luuid -lmount -lblkid`）未列。缺失不崩，但 spawn 启动通知静默失效。
+
+#### 2.5 P4：运行时数据文件边界（架构层）——静态二进制不内嵌配置
+
+"静态化"只消除动态依赖，**不消除运行时文件依赖**。必须保留在容器里的：
+
+| 文件 | 用途 | 缺失后果 |
+|------|------|---------|
+| `/etc/fonts/*` + 字体目录 | fontconfig 必读 | **Pango 渲染全空**（界面无文字） |
+| gdk-pixbuf loaders | 2.2 内建后无需 | — |
+| pango modules | 2.3 禁用后无需 | — |
+| bash / sort | `awful.completion`（2.1 ✅7） | 补全失效 |
+
+与 二·6.4 "rofi 需 GTK" 同类但更基础：**awesome 自己就要字体文件**。容器瘦化时这一层不能动。
+
+#### 2.6 小结
+
+| # | 项 | 严重度 | 文档现状 | 建议落点 |
+|----|------|------|------|------|
+| P1 | gdk-pixbuf loaders + C 侧 3 处消费者 | 高 | 3.6 仅记 Lua 单点 | 修 3.6；一·8 补 loader 配方 |
+| P2 | pango 模块机制 + Alpine 无 pango-static | 高 | 8.4 只提"在静态链里" | 一·8 补自建配方 |
+| P3 | libsn 静态链 | 中 | 5.3 配方未列 `-lsn` | 5.3 配方补一行 |
+| P4 | 字体/配置运行时边界 | 中 | 未覆盖 | 新增（2.7 同款表述） |
+| ✅1-7 | 正向验证 8 项 | — | — | 可作为静态化验收清单 |
+
