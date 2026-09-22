@@ -403,28 +403,32 @@ lgi 是 AwesomeWM 的**核心 Lua 绑定层**，基于 gobject-introspection（G
 | 版本历史（LuaRocks） | 0.2（2011）→ 0.7.2 → **0.9.2（2017-10-09，最后正式版）** |
 | 近 5 年 release 数 | **0**（最后一次正式 release 已 9 年） |
 | 近 1 年活跃开发者 | 约 4 名 |
-| 2026-09 Star 数 | ~297（近似值） |
+| 2026-09-20 Star 数 | **492**（实测） |
 
 **判定**：LGI 主仓库**已基本停止维护**，仅零星合并 bugfix。这本身就是一个风险信号——awesome 的核心依赖无人接盘。
 
 ### 3、替代方案对比矩阵
 
-| 项目 | 绑定方式 | 维护状态 | 静态编译支持 | 关键备注 |
-|------|---------|---------|-------------|---------|
-| **LGI** | 动态 GI | ⚠️ 基本停滞 | 官方开发包（`lua-lgi-dev`）声明支持静态链接二进制 | 主仓库；awesome 官方绑定 |
-| **LuaGObject** | 动态 GI（GIRepository 2.0） | ✅ **活跃维护** | 需手动嵌入：把 Lua 编译成字节码，再用 C 侧 `luaL_loadbuffer` 静态嵌入 | 精神续作；V. Lacroix fork；GTK4/libadwaita/Lua 5.4/5.5；**GNOME 49+ 刚需**；LGI 旧测试全通过，迁移成本低 |
-| **lgob** | **静态代码生成**（.gir → C 胶水） | ⚠️ 已不活跃 | **原生设计**——设计上就是静态绑定 | 唯一原生支持静态的方案；灵活度不如动态绑定 |
-| **LuiGI** | 动态 | ❌ 已废弃 | 无 | 作者已建议改用 LGI 或后续者 |
-| **Lua-Gnome / Lua-GTK** | 静态（推测） | ❌ 早已停维 | 理论可行但依赖极老 | 面向 GTK+ 2.x，仅适用极老旧系统 |
-| **lgui** | 未声明 | 未知 | 未声明，但构建简单（`lua make.lua build`） | 轻量 GTK2 绑定，未明确静态支持 |
-| **keybinder** | 静态实验 | 未知 | 需手动指定 Lua 头文件路径 | 特殊用途（按键绑定） |
-| **wxLua** | 非 GTK | 活跃 | 理论可自编静态版 | 通过 wxWidgets 跑在 GTK2 之上，非直接 GTK2 绑定 |
+| 项目 | GitHub 仓库（2026-09-20 实测） | ⭐ / Fork | 绑定方式 | 维护状态 | 静态编译支持 | 关键备注 |
+|------|------------------------------|-----------|---------|---------|-------------|---------|
+| **LGI** | [lgi-devs/lgi](https://github.com/lgi-devs/lgi) | **492** / 81 | 动态 GI | ⚠️ 9 年无 release（2017-10 后） | 官方开发包 `lua-lgi-dev` 声明支持静态链接二进制 | awesome 官方绑定；最后 push 2026-08-17 |
+| **LuaGObject** | [vtrlx/LuaGObject](https://github.com/vtrlx/LuaGObject) | 32 / 4 | 动态 GI（GIRepository 2.0） | ✅ **最近 push 2026-08-25** | 需手动嵌入：Lua 字节码 + C 侧 `luaL_loadbuffer` | **LGI 直接 fork**（2024-12 创建）；GTK4/libadwaita/Lua 5.4/5.5；GNOME 49+ 刚需 |
+| **lgob** | [nomadalex/lgob](https://github.com/nomadalex/lgob) | 5 / 1 | **静态代码生成**（.gir → C 胶水） | ❌ **archived**，最后 push 2011-06-26（**15 年停更**） | **原生设计**——设计上就是静态绑定 | 唯一原生支持静态的方案，但项目已归档不可用；LGPL-3.0 |
+| **wxLua** | [pkulchenko/wxlua](https://github.com/pkulchenko/wxlua) | **357** / 60 | 非 GTK（C++ 手写 wxWidgets 绑定） | ✅ **最近 push 2026-09-19（活跃）** | 理论可自编静态版 | 生态中最活跃者；通过 wxWidgets 跑，非直接 GTK 绑定 |
+| **LUI3** | [d-power/LGUI3](https://github.com/d-power/LGUI3) | 3 / 1 | 未声明 | ⚠️ 最后 push 2025-12-02 | 未声明 | 个人项目，非官方替代品 |
+| **lgui** | [passpeon/lgui](https://github.com/passpeon/lgui) | 0 / 0 | 未声明 | ❌ 最后 push 2018-06-04（8 年） | 未声明 | 轻量 GTK2 绑定；仓库近空 |
+| **keybinder** | [aur-archive/lua-keybinder](https://github.com/aur-archive/lua-keybinder) | 0 / 0 | 静态实验 | ❌ 最后 push 2015-08-16（11 年） | 需手动指定 Lua 头文件路径 | 特殊用途（按键绑定）；AUR 归档镜像 |
+| **LuiGI** | — | — | — | ❌ **GitHub 上找不到对应仓库** | — | 仅存于早期源码托管（SourceForge 等）；作者已建议改用 LGI |
+| **Lua-Gnome / Lua-GTK** | — | — | — | ❌ **GitHub 上找不到对应仓库** | — | 仅存于历史归档；面向 GTK+ 2.x |
 
 **读表结论**：
 
-- **动态 vs 静态的轴**：LGI / LuaGObject / LuiGI 走动态；lgob / Lua-Gnome / lgui 走静态
-- **维护性 × 静态化的交叉点只有 lgob**，但 lgob 本身不活跃
-- LuaGObject 是"最活跃"的选项，但对静态化几乎零贡献（动态绑定 + 需要手动嵌入字节码才能"嵌入"到 C 程序，这跟"静态链接 Lua 库"是两回事）
+- **实际最活跃的 Lua-GUI 绑定是 wxLua（357★，2026-09 仍在推）**，但它走 wxWidgets，不是 lgi 的替代路径
+- **LGI 主仓库 492★、LuaGObject 精神续作 32★**——两个动态 GI 方案星数差 15 倍，说明 LGI 的"用户资产"实际还在，LuaGObject 只是小圈子
+- **lgob 是唯一原生静态方案，但 2011 年后归档 15 年**（`archived: true`），作为依赖引入风险极高
+- **LuiGI 和 Lua-Gnome 在 GitHub 上找不到对应仓库**——只能算历史遗产
+- **动态 vs 静态的轴**：LGI / LuaGObject 走动态；lgob 走静态（已死）；wxLua 走手写 C++（最活跃但不在同一生态）
+- **维护性 × 静态化的交叉点在 2026 年已不存在**：唯一原生静态的 lgob 已归档 15 年
 
 ### 4、GTK2 目标环境的静态绑定方案（补充）
 
