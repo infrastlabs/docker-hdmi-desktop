@@ -2,9 +2,10 @@
 
 > **来源**：docs/b15-260922-code-repo-analysis.md 章节五（LGI 替代候选实测与最小替换边界）
 > **定位**：b15 章节五把 R6（抛弃 GI，纯 C 绑定 + Lua）从 120-240 人天修正为 45-95 人天，并判定"可做但不建议"。本文档是 R6 的**可执行施工方案**，不是可行性论证。
-> **结论先行**：R6 不是"重写半个 awesome"，是"**写一个 4 层 700-1000 行的 shim + 砍掉/改造 Gio**"。细化后成本 **38-62 人天**（砍 menubar）或 **47-74 人天**（保留 menubar，见 12、），低于 b15 的下限估算。
+> **结论先行**：R6 不是"重写半个 awesome"，是"**写一个 4 层 700-1000 行的 shim + 砍掉/改造 Gio**"。细化后成本 **38-62 人天**（砍 menubar）或 **47-74 人天**（保留 menubar，见 二·5），低于 b15 的下限估算。
 >
-> **但风险分布极不均匀**：GLib / Gio / menubar 三项已经上游源码实测校定（见 8.1 / 8.2 / 12.1），**Pango 没有**。3.2 原估的"60 行最小绑定 / 2-4 人天"经实测证伪（漏掉 `textbox.lua` 这个最大消费者），已上修为 **15-30**——**但仍是推测值，不是实测值**，且是当前合计里唯一未经验证的主体项。各数字的可信度分级见 7.3。
+> **但风险分布极不均匀**：GLib / Gio / menubar 三项已经上游源码实测校定（见 二·1.1 / 二·1.2 / 二·5.1），**Pango 没有**。3.2 原估的"60 行最小绑定 / 2-4 人天"经实测证伪（漏掉 `textbox.lua` 这个最大消费者），已上修为 **15-30**——**但仍是推测值，不是实测值**，且是当前合计里唯一未经验证的主体项。各数字的可信度分级见 7.3。
+> **章节结构**：`## 一、` 是施工方案（1-8 节）；`## 二、疑问与细化项` 是对原文疑点的逐项考证（1-5 节）。**两章节号重复**，引用时 `见 1.1` 指第一章、`见 二·1.1` 指第二章；`一·3.4` 指第一章的 3.4。
 
 ---
 
@@ -29,7 +30,7 @@ awesome 静态化的障碍是 `lgi → gobject-introspection → dlopen` 这条�
 | GI 模块 | 引用 | 用途 | 现状方案 |
 |---------|------|------|---------|
 | `cairo` | 8+ | 全部绘制 | **oocairo** 官方活跃（25★，2025-08） |
-| `Pango` / `PangoCairo` | 4 | 文本渲染 | oopango 停滞 **14 年**（4★，最后 commit 2012-03，见 10.5） |
+| `Pango` / `PangoCairo` | 4 | 文本渲染 | oopango 停滞 **14 年**（4★，最后 commit 2012-03，见 二·3.5） |
 | `GLib` | 2 | `gears.timer` 主循环 | **无现成方案**，唯一真空缺 |
 | `Gio` / `GioUnix` | 4 | 文件系统 / dbus | **无现成方案** |
 | `GdkPixbuf` | 1 | 图片加载 | 单一调用点 |
@@ -109,11 +110,11 @@ function Surface._wrap(s) return setmetatable({ _s = s }, Surface) end
 
 #### 3.2 Pango：10-20 人天，但有更省的绕法
 
-oopango（[awesomeWM/oopango](https://github.com/awesomeWM/oopango)）停滞 **14 年**——最后 commit 是 `2012-03-29`（"Make this work with lua 5.2"），最后 tag `v1.1`（2011-05-18）。仓库 `created_at`/`pushed_at` 都显示 2014-10-21，那是 GitHub mirror 的导入日期，不是活跃度。现代 pango 1.50+ 的 `PangoFontDescription` API 有变更，整体移植是体力活且要背 14 年的债（详见 10.5）。
+oopango（[awesomeWM/oopango](https://github.com/awesomeWM/oopango)）停滞 **14 年**——最后 commit 是 `2012-03-29`（"Make this work with lua 5.2"），最后 tag `v1.1`（2011-05-18）。仓库 `created_at`/`pushed_at` 都显示 2014-10-21，那是 GitHub mirror 的导入日期，不是活跃度。现代 pango 1.50+ 的 `PangoFontDescription` API 有变更，整体移植是体力活且要背 14 年的债（详见 二·3.5）。
 
 **更省的做法：不要移植 oopango，手写最小绑定，只实现 awesome 真正调用的函数。**
 
-⚠️ **原稿这里低估了调用面，实测校正见下**。原文写"调用点仅 5 处：`lib/beautiful/init.lua`（4 处，字体解析）+ `lib/gears/color.lua`（1 处）"、"实际用到 5-8 个 C 函数"——**两者都错，差了一个量级**（同类错误已在 8.1 的 GLib、12.1 的 menubar 上各犯过一次）。
+⚠️ **原稿这里低估了调用面，实测校正见下**。原文写"调用点仅 5 处：`lib/beautiful/init.lua`（4 处，字体解析）+ `lib/gears/color.lua`（1 处）"、"实际用到 5-8 个 C 函数"——**两者都错，差了一个量级**（同类错误已在 1.1 的 GLib、5.1 的 menubar 上各犯过一次）。
 
 **实测调用面（`lib/` 全目录，排除 spec/tests/docs）**：
 
@@ -158,9 +159,9 @@ local _, logical = playout:get_pixel_extents()
 
 **校正后的估计**：最小可编译（markup/ellipsize 降级、抛 warning）约 **8-15 人天**；保真实现约 **15-30 人天**。原文"60 行最小绑定 / 2-4 人天"作废——按 25 个入口 × 每个约 10-15 行 C 胶水（类型检查 + 参数转换 + 返回值转换 + 错误处理）算，光骨架就 250-400 行。
 
-**这也解释了 7.1 与 12.4 的表内矛盾**：7.1 写 Pango `2-4`，12.4 写 `15-30`。以实测为准应统一为 **15-30**（见下）。
+**这也解释了 7.1 与 5.4 的表内矛盾**：7.1 写 Pango `2-4`，5.4 写 `15-30`。以实测为准应统一为 **15-30**（见下）。
 
-#### 3.3 GLib 主循环：3-6 人天（原估 15-30，校正见 8.1）
+#### 3.3 GLib 主循环：3-6 人天（原估 15-30，校正见 二·1.1）
 
 **关键认知：GLib 主循环在 C 侧，不在 Lua 侧。** `awesome.c:896-897`：
 
@@ -208,7 +209,7 @@ LGI 用 closure guard 保证**整个闭包**在回调期间不失效。手写方
 
 **验收标准**：1000 个并发定时器下不泄漏、不重入。
 
-#### 3.4 Gio：2-4 人天（原估"砍到 0-1"，校正见 8.2）
+#### 3.4 Gio：2-4 人天（原估"砍到 0-1"，校正见 二·1.2）
 
 Gio 的 4 处用途逐一定性：
 
@@ -217,7 +218,7 @@ Gio 的 4 处用途逐一定性：
 | `lib/beautiful/init.lua:274` | 1 | 改 `io` 路径操作 | `Gio.File.new_for_path(config):get_parent()`，单行 |
 | `lib/gears/filesystem.lua` | 中 | **砍**，改 `io` + `lfs` | 只用 `query_info`×4 / `make_directory_with_parents` / `get_parent` / `query_file_type` / `enumerate_children` |
 | `lib/naughty/dbus.lua` | **21** | **砍，但必须打补丁** | 见下"dbus.c 兜不住" |
-| `lib/menubar/utils.lua` | 4 | **砍 menubar** 或 **改造为同步**（见 12） | `async_*` 可换同步版，`gio.Async.start` 包装可整个删掉 |
+| `lib/menubar/utils.lua` | 4 | **砍 menubar** 或 **改造为同步**（见 二·5） | `async_*` 可换同步版，`gio.Async.start` 包装可整个删掉 |
 
 **`dbus.c` 兜不住 `naughty/dbus.lua`。** `dbus.c:24-29` 头注释原文：
 
@@ -259,7 +260,7 @@ end
 
 shim 里 `lgi.require` 恒返回 `nil`，`gtk.lua` 内部两层 pcall 走 `print_warning` + `return nil` 路径，**函数优雅返回 nil，awesome 本体不崩**。
 
-⚠️ 但这不等于"上层调用方全部对 nil 有容错"。`gtk.get_theme_variables()` 返回的 nil 只在**用户 rc.lua 主动跟随 GTK 主题**时被用到，此时崩点是用户代码里 `vars.bg_color` 索引 nil；另有 DPI 自动换算丢失等影响——**精确影响面详见 9、**。（注：menubar **不**属于此列，它零 GTK 依赖，见 11.3）
+⚠️ 但这不等于"上层调用方全部对 nil 有容错"。`gtk.get_theme_variables()` 返回的 nil 只在**用户 rc.lua 主动跟随 GTK 主题**时被用到，此时崩点是用户代码里 `vars.bg_color` 索引 nil；另有 DPI 自动换算丢失等影响——**精确影响面详见 二·2**。（注：menubar **不**属于此列，它零 GTK 依赖，见 二·4.3）
 
 **0 人天，零改动。**
 
@@ -297,12 +298,12 @@ awesome 已迁 CMake（commit `0a5e50c`），`*.c` 在仓库顶层、Lua 在 `li
 | 18-22 | **GLib 绑定**：2 函数 + 2 常量 + closure guard | 1000 定时器压力测试不泄漏、不重入 |
 | 22-26 | 砍 Gio 4 处 → `io`/`lfs` + **补丁 `notification.lua:813` 与 `naughty/init.lua:13`** | 主题加载正常，本地通知正常 |
 | 26-27 | GdkPixbuf 50 行绑定 | 图片加载正常 |
-| 27-33 | 静态链接调试（砍 Gio 后链接链已简化；保留 menubar 则需静态化 libgio 依赖链，见 12） | 二进制无动态依赖（`ldd` 只剩 libc） |
+| 27-33 | 静态链接调试（砍 Gio 后链接链已简化；保留 menubar 则需静态化 libgio 依赖链，见 二·5） | 二进制无动态依赖（`ldd` 只剩 libc） |
 | 33-40 | 回归：跑 `spec/` + `tests/` 纯 Lua 单测子集 | 无 GI 依赖的测试全绿 |
 
 > **原排期把 Pango 压在 1 天（`| 3-4 |`）是基于 3.2 已证伪的"60 行最小绑定"假设。按实测的约 25 个 API 重排后，Pango 是全程最长的单项，整条排期后移约 12 天。**
 
-**总成本 ~38-62 人天**（砍 menubar 方案），低于 b15 章节五的 45-95 估算，原因是砍掉 Gio（省 10-20）以及 GLib 经源码实测下调（省 10-20，见 8.1）。**若保留 menubar 则升至 47-74 人天**（见 12、）。
+**总成本 ~38-62 人天**（砍 menubar 方案），低于 b15 章节五的 45-95 估算，原因是砍掉 Gio（省 10-20）以及 GLib 经源码实测下调（省 10-20，见 二·1.1）。**若保留 menubar 则升至 47-74 人天**（见 二·5）。
 
 ⚠️ **这个合计里 Pango 的 15-30 是唯一未实测的主体项**（见 3.2 / 7.3），合计区间的可信度主要取决于它。
 
@@ -340,13 +341,13 @@ oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后�
 |------|---------|---------|---------|
 | Cairo 层 | 0-3 | 0-3 | — |
 | Pango 层 | 10-20 | **15-30** | ⚠️ 原估 2-4 已证伪（见 3.2）：实测 8 个文件 / 约 25 个 API，漏掉 `textbox.lua`；**仍为推测值，非实测** |
-| GLib 主循环 | 15-30 | **3-6** / **4-8** | C 侧已静态；Lua 侧 2 函数；保留 menubar 需补 6 个 GLib 函数（见 12.1） |
-| Gio | 10-20 | **2-4** / **8-15** | 砍 menubar 则 4 处全砍；保留则需同步 shim + fork（见 12）；原写"C 侧 dbus.c 兜底"是错的（见 8.2） |
+| GLib 主循环 | 15-30 | **3-6** / **4-8** | C 侧已静态；Lua 侧 2 函数；保留 menubar 需补 6 个 GLib 函数（见 二·5.1） |
+| Gio | 10-20 | **2-4** / **8-15** | 砍 menubar 则 4 处全砍；保留则需同步 shim + fork（见 二·5）；原写"C 侧 dbus.c 兜底"是错的（见 二·1.2） |
 | GTK3 | 0 | 0 | pcall 保护 |
 | GdkPixbuf | 0-2 | 0-2 | — |
 | 测试回归 | 10-20 | 6-8 | 只跑纯 Lua 子集 |
-| 静态链接 | 未单列 | 10-20 / **6-12** | 砍 menubar 则链接链简化；保留则需静态化 libgio 依赖链——**已有 `v-pcmanfm` 落地先例，见 12.3** |
-| **合计** | **45-95** | **38-62** / **47-74** | 砍 menubar / 保留 menubar（见 12）；绕开 oopango + GLib 实测下调 |
+| 静态链接 | 未单列 | 10-20 / **6-12** | 砍 menubar 则链接链简化；保留则需静态化 libgio 依赖链——**已有 `v-pcmanfm` 落地先例，见 二·5.3** |
+| **合计** | **45-95** | **38-62** / **47-74** | 砍 menubar / 保留 menubar（见 二·5）；绕开 oopango + GLib 实测下调 |
 
 #### 7.2 R6 在路线排序中的位置
 
@@ -363,7 +364,7 @@ R4  换 LuaGnome        :120-240   不可行
 
 #### 7.3 结论
 
-- R6 细化后 **38-62 人天**（砍 menubar）或 **47-74 人天**（保留 menubar，见 12、）；GLib/Gio 经源码实测再次下调（见 8、）。结论从 b15 的"可做但不建议"收窄为"**有条件建议**"
+- R6 细化后 **38-62 人天**（砍 menubar）或 **47-74 人天**（保留 menubar，见 二·5）；GLib/Gio 经源码实测再次下调（见 二·1）。结论从 b15 的"可做但不建议"收窄为"**有条件建议**"
 - 条件：**Lua 生态 + awesome 配置复用对本项目是刚需**
 - 若只为"静态 WM"，R7（dwm，5-15 人天）以 1/4 成本拿到同样收益
 - R6 的唯一不可替代价值：**保留 60 行调用点背后的整套 Lua widget/layout 生态**
@@ -372,12 +373,12 @@ R4  换 LuaGnome        :120-240   不可行
 
  | 等级 | 项 | 依据 |
  |------|-----|------|
- | ✅ 上游源码实测 | GLib 3-6、Gio 2-4、menubar Gio 8-15、零 D-Bus、libgio 静态链 | 8.1 / 8.2 / 12.1 / 12.3，均可复现 grep 或 `ldd` |
+ | ✅ 上游源码实测 | GLib 3-6、Gio 2-4、menubar Gio 8-15、零 D-Bus、libgio 静态链 | 二·1.1 / 二·1.2 / 二·5.1 / 二·5.3，均可复现 grep 或 `ldd` |
  | ✅ 本项目已落地 | libgio 依赖链静态化 | `v-pcmanfm` 37.1M 全静态产物 |
  | ⚠️ **推测值，未实测** | **Pango 15-30** | 只有调用面枚举（3.2），没有绑定实现样本 |
  | ⚠️ 推测值 | Cairo 0-3、GdkPixbuf 0-2、测试回归 6-8、静态链接 10-20/6-12 | 数量级判断 |
 
- 合计 38-62 的下界主要由 Pango 支撑，**在 Pango 实测校定前，不要把 38-62 当成承诺值**。校定方法见文末"待办"。
+ 合计 38-62 的下界主要由 Pango 支撑，**在 Pango 实测校定前，不要把 38-62 当成承诺值**。校定方法见 8。
 
 #### 7.4 与 b15 的关系
 
@@ -388,14 +389,70 @@ R4  换 LuaGnome        :120-240   不可行
 
 ---
 
-### 8、源码实测校正：GLib 与 Gio
+### 8、待办：把推测值变成实测值
+
+本文档的 4 个最大未知按"收益 / 成本"排序，前 4 项合计约 **3-4 天**，能把最大的 3 个不确定性从推测变成实测。
+
+#### 8.1 Pango 绑定骨架空跑（1-2 天，收益最高）
+
+按 3.2 枚举的约 25 个 API 写 C 骨架，**stub 返回固定值**，先让 `make` 通过、awesome 能启动到能画框。
+
+这一步不追求文本渲染正确，只为了量出**胶水代码实际写了多少行**。它能把 15-30 的区间收窄到实测值，是整份计划里性价比最高的一步——因为 Pango 是合计区间的主体项（7.3）。
+
+#### 8.2 跑现有 spec 建立基线（0.5 天，当前完全没做）
+
+上游自带测试可以直接复用，不需要新写：
+
+```
+spec/menubar/
+  utils_spec.lua         # 含 parse_desktop_file / KeyFile 解析
+  icon_theme_spec.lua
+  home/.icons/{icon6.xpm,icon7.svg}   # 9 个真实 fixture 文件
+  usr/share/{icon5.png,icon6.xpm,icon7.svg,.filename.png}
+  icons/awesome/{index.theme,16x16,32x32,48x48,64x64,scalable}
+```
+
+CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），在源码目录直接跑。
+
+**先确认它们在改造前是全绿的**，才能作为 shim 完成后的验收依据。这一步是 5、7.1 节"跑纯 Lua 单测子集"的真正落地方式，原文只写了概念没有列具体文件。
+
+#### 8.3 timer 分块原型对比（0.5 天）
+
+在**现有 LGI 环境**上把 `utils.parse_dir` 改成 5.2 的 timer 驱动版本，对比输出与异步版是否一致。
+
+不需要等 shim 写完就能验证 5.2 的设计。这也是 5.3 里 fork menubar "约 80-100 行" 的直接依据。
+
+#### 8.4 awesome 本体静态链接 dry-run（1 天）
+
+在 Alpine 容器里按 5.3 的配方试链**当前 upstream awesome**，确认产物量级和 `ldd` 结果。
+
+5.3 的先例只证明了"pcmanfm 能静态链"，这一步要证明的是"配方可迁移到 awesome"。两者不是一回事——awesome 还要引入 cairo/pango/fontconfig/harfbuzz，虽然同一条链里 pcmanfm 已经静态链过这几个库，但组合方式不同。
+
+#### 8.5 cairo API 语义核查（0.5 天，风险低，排最后）
+
+`cairo.Context` 已数出 28 个方法、约 450 处调用（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 51、`cr:rectangle` × 38、`cr:paint` × 34、`cr:stroke` × 32……），但 `shape.lua`（28 处）和 `wibox/hierarchy.lua`（12 处）的具体语义还没看过。排在 Pango 后面，因为 cairo 有活的官方库 oocairo 可参照（3.1）。
+
+#### 8.6 做完之后的判断标准
+
+| 结果 | 判断 |
+|------|------|
+| 8.1 骨架 < 300 行 | Pango 落在 15-20，合计 **38-52** 可信 |
+| 8.1 骨架 > 600 行 | Pango 落到 30+，R6 合计可能破 70，需重评 R7（dwm） |
+| 8.2 spec 改造前就不全绿 | 5、7.1 的"测试回归 6-8"低估，需重估 |
+| 8.4 awesome 链不过 | 5.3 的"已消除"要撤回，回到"硬门槛" |
+
+---
+
+## 二、疑问与细化项
+
+### 1、源码实测校正：GLib 与 Gio
 
 > **提问原文**：
 > 最小替换集：cairo + Pango + GLib + Gio 四模块，外加砍掉 GTK3。真正没现成方案的是 GLib 主循环 和 Gio——这两个加起来是 R6 的成本主体。两个当前细节是怎么处理的？降级有哪些影响？会有什么隐患？
 >
-> 3.3 / 3.4 的人天与方案在拿到上游 `0a5e50c` 源码后做了实测校正。本节目的是**说明原文那两处错在哪**，以及砍 Gio 的真实代价。
+> 一·3.3 / 一·3.4 的人天与方案在拿到上游 `0a5e50c` 源码后做了实测校正。本节目的是**说明原文那两处错在哪**，以及砍 Gio 的真实代价。
 
-#### 8.1 GLib：绑定面比"5 个函数"小一个量级
+#### 1.1 GLib：绑定面比"5 个函数"小一个量级
 
 **发现 1：GLib 主循环在 C 侧。** `awesome.c:896-897`：
 
@@ -430,7 +487,7 @@ glib.timeout_add(glib.PRIORITY_DEFAULT, timeout_ms, function()
 
 回调函数**无参数**，`self` 是闭包变量。guard 不能只护函数对象本身，必须护住整个闭包捕获的环境。
 
-#### 8.2 Gio：`dbus.c` 兜不住 `naughty/dbus.lua`
+#### 1.2 Gio：`dbus.c` 兜不住 `naughty/dbus.lua`
 
 原文写"砍掉 `naughty/dbus.lua`，awesome C 内核自带 `dbus.c`（30KB）"——**这条是错的**。`dbus.c:24-29` 头注释原文：
 
@@ -449,7 +506,7 @@ glib.timeout_add(glib.PRIORITY_DEFAULT, timeout_ms, function()
 
 **发现 4：Gio 的真实成本从来不是"写绑定"。** `libgio-2.0.a` 依赖 `gio-unix-2.0`、`libmount`、`libselinux`、`libsystemd`、`libffi`... 原文"Gio 10-20 人天"的实际含义是搞这条链接链，而不是写 API 绑定。所以**砍掉 Gio 有隐藏收益**：静态链接阶段直接省掉这一整串依赖。
 
-#### 8.3 `gears/filesystem.lua` 降级：影响面 10 个文件
+#### 1.3 `gears/filesystem.lua` 降级：影响面 10 个文件
 
 `gears/filesystem` 被 10 个文件引用：`naughty/notification.lua`、`naughty/layout/legacy.lua`、`menubar/icon_theme.lua`、`menubar/menu_gen.lua`、`menubar/init.lua`、`menubar/utils.lua`、`wibox/widget/imagebox.lua`、`awful/completion.lua`、`awful/prompt.lua`、`gears/init.lua`。
 
@@ -475,14 +532,14 @@ local file_list = Gio.File.new_for_path(path):enumerate_children("standard::*", 
 
 `enumerate_children` 是**惰性游标**，`io` 无等价物，必须一次性缓存到表。对 `/usr/share/icons` 这类大目录有内存和延迟代价——而 `menubar/icon_theme.lua` 正好枚举图标目录（砍 menubar 则此问题消失）。
 
-#### 8.4 两处"看起来简单但错就全坏"的位置
+#### 1.4 两处"看起来简单但错就全坏"的位置
 
 | 位置 | 代码 | 错的影响 |
 |------|------|---------|
 | `lib/beautiful/init.lua:274` | `Gio.File.new_for_path(config):get_parent()` | 定位主题目录，**改错 → 主题解析失败 → 整个桌面外观崩**。只有一行，测试最容易漏 |
 | `lib/menubar/utils.lua:407` | `gio.Async.start(do_protected_call)(...)` | 菜单扫描是**异步**的；同步化会阻塞主循环导致 UI 卡顿。砍 menubar 则消失 |
 
-#### 8.5 `a_glib_poll` 的 Lua 栈断言（原文未列的隐蔽隐患）
+#### 1.5 `a_glib_poll` 的 Lua 栈断言（原文未列的隐蔽隐患）
 
 `awesome.c:460-464`：
 
@@ -496,7 +553,7 @@ if (lua_gettop(L) != 0) {
 
 **每次 GLib poll 都断言 Lua 栈顶为 0。** 手写绑定如果在 C 回调里操作 Lua 栈后没清干净，会踩这个断言——表现为 warn 刷屏 + 随机行为，**而不是崩溃**，比段错误更难定位。LGI 有专门处理，手写要自己保证。
 
-#### 8.6 校正汇总
+#### 1.6 校正汇总
 
 | 项 | 原文 | 实测 | 依据 |
 |----|------|------|------|
@@ -507,14 +564,14 @@ if (lua_gettop(L) != 0) {
 | 砍 dbus.lua | "省 Gio" | ⚠️ **需补丁 2 处 require** | `notification.lua:813`、`naughty/init.lua:13` |
 | Gio 人天 | 10-20 | **2-4** | 真实成本是链接链，砍掉即省依赖树 |
 | **Pango 调用面** | **2 个文件 / 5 处 / 5-8 个 C 函数** | ❌ **8 个文件 / 约 25 个 API** | `lib/` 全目录 grep；**漏掉 `textbox.lua`（27 处引用，富文本主路径）** |
-| Pango 人天 | 10-20 → "更省的 2-4" | **上修至 15-30** | 3.2；与 10.7 的 15-30 对齐，消除 7.1 / 12.4 表内矛盾 |
-| 同步化 menubar | "无真正并发，可直接同步" | ⚠️ **会卡 UI** | `async_*` 每调用 `coroutine.yield` 让出主循环；见 12.2 |
+| Pango 人天 | 10-20 → "更省的 2-4" | **上修至 15-30** | 一·3.2；与 3.7 的 15-30 对齐，消除 一·7.1 / 5.4 表内矛盾 |
+| 同步化 menubar | "无真正并发，可直接同步" | ⚠️ **会卡 UI** | `async_*` 每调用 `coroutine.yield` 让出主循环；见 5.2 |
 | libgio 静态链 | "硬门槛，需实测" | ✅ **已落地** | `v-pcmanfm` 37.1M 全静态 + 零 D-Bus |
 | **R6 合计** | 35-45 → 25-40 | **38-62**（Pango 上修 +13） | — |
 
 ---
 
-### 9、GTK3 降级的真实影响面
+### 2、GTK3 降级的真实影响面
 
 > **提问原文**：
 > gtk3降级砍掉。也就是说静态版 awesome 里砍掉 GTK3 不会崩，只是不再能读取 GTK 主题颜色变量——这是一个可接受的降级。这个砍掉之后，会用gtk2? 有没其他的什么影响？
@@ -523,7 +580,7 @@ if (lua_gettop(L) != 0) {
 >
 > 3.5 判"GTK3 零成本砍掉"。本节展开砍掉后的真实影响面，并纠正一个常见误解：**不会 fallback 到 GTK2**。
 
-#### 9.1 没有 GTK2 fallback
+#### 2.1 没有 GTK2 fallback
 
 全仓库搜 `Gtk 2` / `GTK2` / `gtk-2`，唯一命中是 `tests/_client.lua:35` 的一句测试注释：
 
@@ -541,7 +598,7 @@ return lgi.require('Gtk', '3.0')
 
 补充：`CMakeLists.txt` 搜 `gtk` **零命中**——GTK 从来不是构建期依赖，只是运行时通过 lgi `dlopen`。静态版不需要链接任何 GTK 库，**砍掉让二进制更小**。
 
-#### 9.2 WM 本体不用 GTK 主题
+#### 2.2 WM 本体不用 GTK 主题
 
 | 东西 | 实现 | 依赖 |
 |------|------|------|
@@ -553,7 +610,7 @@ return lgi.require('Gtk', '3.0')
 
 **图标主题识别不依赖 GTK 的 `IconTheme` API**——它直接扫 `~/.icons` / `/usr/share/icons` 的文件系统结构。这条容易搞错。
 
-#### 9.3 主题识别机制与 GTK 无关
+#### 2.3 主题识别机制与 GTK 无关
 
 容易混淆：`beautiful.gtk` 听起来像主题系统的一部分，但它不是。
 
@@ -570,7 +627,7 @@ return lgi.require('Gtk', '3.0')
 
 **没有任何生产代码调用 `gtk.get_theme_variables()`**——它只是作为 `beautiful.gtk` 字段暴露给**用户 rc.lua 手动调用**。
 
-#### 9.4 那 40+ 个 GTK 主题变量到底是什么
+#### 2.4 那 40+ 个 GTK 主题变量到底是什么
 
 一个可选的"跟随系统主题"桥，把 GTK CSS 属性读出来映射成 beautiful 变量：
 
@@ -581,7 +638,7 @@ return lgi.require('Gtk', '3.0')
 | 字体 | 2 | `font_family`、`font_size`（含 `GDK_SCALE` + Xresources DPI + pt-to-px 换算） |
 | 圆角 | 2 | `button_border_radius`、`button_border_width` |
 
-#### 9.5 砍掉后的真实影响面
+#### 2.5 砍掉后的真实影响面
 
 | rc.lua 写法 | 影响 |
 |-------------|------|
@@ -599,7 +656,7 @@ beautiful.bg_normal = vars.bg_color                 -- 崩：attempt to index ni
 
 **结论**：砍掉 GTK3 不会让 awesome 崩，只会让"跟随 GTK 主题"的 rc.lua 崩。
 
-#### 9.6 其他连带影响
+#### 2.6 其他连带影响
 
 **① 字体 DPI 自动适配丢了，但有替代路径**
 
@@ -614,13 +671,13 @@ beautiful.bg_normal = vars.bg_color                 -- 崩：attempt to index ni
 
 原判断"`lib/menubar/menu_gen.lua` 依赖 Gtk menubar 协议"是**错的**——grep `Gtk\|gtk` 全 `lib/menubar/` 目录**零命中**，menubar 零 GTK 依赖。它靠 Gio 扫 `.desktop` 文件 + 自己遍历文件系统找图标。
 
-**砍 GTK3 后 menubar 仍能工作**。它真正的问题是 Gio（`utils.lua:17` 的 `lgi.Gio` + `gio.Async.start` 异步扫描），砍 Gio 时才需要砍 menubar。详见 11.3。
+**砍 GTK3 后 menubar 仍能工作**。它真正的问题是 Gio（`utils.lua:17` 的 `lgi.Gio` + `gio.Async.start` 异步扫描），砍 Gio 时才需要砍 menubar。详见 4.3。
 
 **③ 用户自定义 widget 里用了 `Gtk.*` 的会失效**
 
 这是用户代码，不是 awesome 本体。
 
-#### 9.7 小结：3.5 的"0 人天"成立，但表述需要修正
+#### 2.7 小结：一·3.5 的"0 人天"成立，但表述需要修正
 
 3.5 原文写"只是不再能读取 GTK 主题颜色变量"。更精确的表述：
 
@@ -632,33 +689,33 @@ beautiful.bg_normal = vars.bg_color                 -- 崩：attempt to index ni
 | naughty 本地通知 / awful.completion | ✅ 零影响 |
 | **rc.lua 主动跟随 GTK 主题** | ❌ 崩在用户代码，需补 nil 保护 |
 | **GTK 主题的 DPI 自动换算** | ⚠️ 需改用 `xresources.get_dpi()` |
-| menubar | ✅ **不受影响**（零 GTK 依赖，原文误判，见 11.3） |
+| menubar | ✅ **不受影响**（零 GTK 依赖，原文误判，见 4.3） |
 
 对这个项目：容器里大概率没有桌面环境也没有 GTK 主题，这条路径本来就不会走。**砍掉是纯收益，0 人天成立。**
 
 ---
 
-### 10、四模块替换源与 LGI 引入历史
+### 3、四模块替换源与 LGI 引入历史
 
 > **提问原文**：
 > 最小替换集：cairo + Pango + GLib + Gio 四模块，四个具体是怎么替换的？用的awesomewm官方的另外两个仓库吗？官方什么时候 哪个版本开始用lgi的，官方的那两个仓库对应最新版本还靠谱可用吗？
 >
 > 本节回答四问，并纠正两个之前的记录偏差：**LGI 引入点是 v3.5 不是 v4.0**；**oopango 停滞 14 年不是 12 年**。
 
-#### 10.1 四模块替换源对照
+#### 3.1 四模块替换源对照
 
 | 模块 | 替换源 | API 形态差异 |
 |------|--------|-------------|
 | **cairo** | `awesomeWM/oocairo` | LGI 是 OO 调用（`cr:line_to(x,y)`），oocairo 是函数式（`cairo.line_to(cr,x,y)`）→ shim 要做形态适配 |
 | **Pango** | `awesomeWM/oopango` | 同上，OO ↔ 函数式 |
-| **GLib** | **无现成方案，手写** | 无等价库（见 8.1） |
-| **Gio** | **全砍**，改 `io.open` + C 侧 `dbus.c` | 无等价替换（见 8.2） |
+| **GLib** | **无现成方案，手写** | 无等价库（见 1.1） |
+| **Gio** | **全砍**，改 `io.open` + C 侧 `dbus.c` | 无等价替换（见 1.2） |
 
 GLib 全仓库生产代码仅 3 行调用：`glib.timeout_add` / `glib.SOURCE_CONTINUE` / `glib.source_remove`，即 2 函数 + 2 常量。
 
 Gio 4 处调用：`gears/filesystem.lua`、`naughty/dbus.lua`、`menubar/utils.lua`、`menubar/icon_theme.lua`。两个坑：`Gio.IOErrorEnum` 的 typed error 在 `io` 无等价物；`enumerate_children` 是惰性游标，`io` 无等价物需一次性缓存。
 
-#### 10.2 官方两个仓库：是，但 awesome 本体已零引用
+#### 3.2 官方两个仓库：是，但 awesome 本体已零引用
 
 `awesomeWM` 组织名下：
 
@@ -669,7 +726,7 @@ Gio 4 处调用：`gears/filesystem.lua`、`naughty/dbus.lua`、`menubar/utils.l
 
 **关键澄清：awesome 本体已零引用这两个库**。grep 全仓库 `oocairo\|oopango\|oox11` **零命中**。它们是 LGI 引入后的遗留库，组织仍维护，但不是 awesome 的当前实现。
 
-#### 10.3 LGI 引入点是 v3.5，不是 v4.0
+#### 3.3 LGI 引入点是 v3.5，不是 v4.0
 
 证据链：
 
@@ -686,7 +743,7 @@ awesome release 日期（GitHub API 实测）：v4.0 2016-12-25、v4.1 2017-03-1
 
 **R6 本质上是回到 v3.4 之前的架构**，但比那时更好——GLib 主循环早就在 C 侧了。
 
-#### 10.4 oocairo v1.5：相对靠谱
+#### 3.4 oocairo v1.5：相对靠谱
 
 - 2025-08-10 还有 bugfix（tflori 的 PR #14，"return nothing in a void function"）
 - 依赖声明干净：`PKG_CHECK_MODULES([DEPS], [$LUA_NAME cairo])`
@@ -696,7 +753,7 @@ awesome release 日期（GitHub API 实测）：v4.0 2016-12-25、v4.1 2017-03-1
 
 结论：**可用，但需要自己维护编译链**。
 
-#### 10.5 oopango v1.1：R6 的真正风险点
+#### 3.5 oopango v1.1：R6 的真正风险点
 
 - 最后 commit **2012-03-29**（"Make this work with lua 5.2"），**停滞 14 年**
 - 最后 tag **v1.1**（2011-05-18），2 forks，无人接手
@@ -704,7 +761,7 @@ awesome release 日期（GitHub API 实测）：v4.0 2016-12-25、v4.1 2017-03-1
 
 **之前记录"停滞 12 年"是错的**：仓库 `created_at`/`pushed_at` 都是 2014-10-21，那是 GitHub mirror 的导入日期，被误当成活跃度。实际最后 commit 早 2.5 年。
 
-#### 10.6 Pango 层只剩两条路
+#### 3.6 Pango 层只剩两条路
 
 候选清单里没有活着的官方方案，只剩：
 
@@ -719,7 +776,7 @@ toy text API（`select_font_face` / `show_text`）覆盖不了 `PangoFontDescrip
 - ✅ cairo 层：有活的官方库（2025 还在修）
 - ❌ Pango 层：**没有可用方案**，只有死库或降级
 
-#### 10.7 小结
+#### 3.7 小结
 
 | 问 | 答 |
 |----|-----|
@@ -728,18 +785,18 @@ toy text API（`select_font_face` / `show_text`）覆盖不了 `PangoFontDescrip
 | LGI 从哪个版本开始 | **v3.5**（不是 v4.0），v4.0 是 2016-12-25 全面铺开 |
 | 两个仓库靠谱吗 | oocairo v1.5 相对靠谱；**oopango v1.1 不靠谱（停滞 14 年）** |
 
-**对 R6 成本的影响**：3.2 节估的 Pango "10-20 人天"是**下限**。因为 oopango v1.1 无法直接编译到现代 pango，需要移植，实际可能是 **15-30 人天**——甚至可能超过 GLib 的 3-6 人天成为新的成本主体。
+**对 R6 成本的影响**：一·3.2 节估的 Pango "10-20 人天"是**下限**。因为 oopango v1.1 无法直接编译到现代 pango，需要移植，实际可能是 **15-30 人天**——甚至可能超过 GLib 的 3-6 人天成为新的成本主体。
 
 ---
 
-### 11、menubar 到底是什么，砍掉会缺什么
+### 4、menubar 到底是什么，砍掉会缺什么
 
 > **提问原文**：
 > menubar介绍下是啥 是主桌面右键菜单还是顶部panel？ 砍掉它有什么影响与风险，哪些功能会缺失？
 >
-> 本节澄清一个概念误区，并**修正 9.6 节的错误判断**：menubar 零 GTK 依赖，砍 GTK3 不影响它。
+> 本节澄清一个概念误区，并**修正 2.6 节的错误判断**：menubar 零 GTK 依赖，砍 GTK3 不影响它。
 
-#### 11.1 menubar 是什么
+#### 4.1 menubar 是什么
 
 官方定义（`docs/05-awesomerc.md.lua:30`）：**"XDG (application) menu implementation"**
 模块头（`lib/menubar/init.lua:2`）："a freedesktop menu alternative"
@@ -760,7 +817,7 @@ toy text API（`select_font_face` / `show_text`）覆盖不了 `PangoFontDescrip
 
 键盘导航（`init.lua:7-27`）：`Left`/`Right`/`C-j`/`C-k` 选条目、`Backspace` 退出分类、`Escape` 退出、`Home`/`End` 首末、`Return` 执行、`C-Return` 用 `awful.spawn`、`C-M-Return` 终端执行。
 
-#### 11.2 API 全表
+#### 4.2 API 全表
 
 `init.lua` 导出：
 
@@ -777,7 +834,7 @@ toy text API（`select_font_face` / `show_text`）覆盖不了 `PangoFontDescrip
 
 `utils` 导出（`utils.lua`）：`terminal`（默认 `'xterm'`）、`wm_name`、`rtrim`、`lookup_icon_uncached`、`lookup_icon`、**`parse_desktop_file`**、`parse_dir`、`compute_textbox_width`、`compute_text_width`。
 
-#### 11.3 依赖：零 GTK（修正 9.6 的判断）
+#### 4.3 依赖：零 GTK（修正 2.6 的判断）
 
 | 依赖 | 实际 |
 |------|------|
@@ -786,11 +843,11 @@ toy text API（`select_font_face` / `show_text`）覆盖不了 `PangoFontDescrip
 | **GLib** | `utils.lua:18` + `icon_theme.lua:15` |
 | 图标主题 | `index_theme.lua` / `icon_theme.lua` **自己遍历文件系统**，不用 `Gtk.IconTheme` |
 
-**结论：砍 GTK3 后 menubar 仍能工作**。9.6 原文"`menu_gen.lua` 依赖 Gtk menubar 协议"是错的。
+**结论：砍 GTK3 后 menubar 仍能工作**。2.6 原文"`menu_gen.lua` 依赖 Gtk menubar 协议"是错的。
 
 menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now asynchronous and needs a callback"），`utils.parse_dir` 用 `gio.Async.start` + `async_enumerate_children` 回调。砍 Gio 只能改同步，**大目录下会阻塞主循环**。
 
-#### 11.4 砍掉的改动面：3 行
+#### 4.4 砍掉的改动面：3 行
 
 全仓库生产代码只有 `awesomerc.lua` 一处 `require("menubar")`，其余全是测试：
 
@@ -803,7 +860,7 @@ menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now
 
 **改动成本接近 0**。
 
-#### 11.5 缺失的功能
+#### 4.5 缺失的功能
 
 | 功能 | 替代方案 |
 |------|---------|
@@ -814,18 +871,18 @@ menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now
 
 **第 2 项是最实质损失**：`awful/menu.lua` grep `desktop\|xdg\|applications\|parse` **零命中**，它只是通用菜单容器，不做应用菜单解析。而且 awesome **没有 `awful.application_menu`**（只有 `lib/awful/menu.lua`）。砍掉 menubar 等于放弃"从系统读应用列表"的能力。
 
-#### 11.6 两个隐患
+#### 4.6 两个隐患
 
 1. **`naughty` 里有注释掉的代码引用它**（`naughty/core.lua:620/654/655`：`menubar.utils.lookup_icon(hints.id)`）——上游曾计划用 menubar 的图标查找给通知配图标。用户 rc.lua 若照抄这类代码，砍掉会崩。
 2. **砍 Gio 后无法同步化改造**：`parse_dir` 的异步回调结构改同步会阻塞主循环，`~/.local/share/applications` 条目多时启动卡顿明显。
 
-#### 11.7 小结
+#### 4.7 小结
 
 | 问 | 答 |
 |----|-----|
 | 是右键菜单还是 panel | **都不是**，是独立启动器 popup（默认 `Super+P`） |
 | 依赖什么 | **零 GTK**、Gio（仅 `utils.lua`）、GLib、自己遍历文件系统找图标 |
-| 砍 GTK3 影响它吗 | ❌ **不影响**（9.6 原文误判，已修正） |
+| 砍 GTK3 影响它吗 | ❌ **不影响**（2.6 原文误判，已修正） |
 | 砍掉改动面 | `awesomerc.lua` 3 行 |
 | 实质缺失 | `.desktop` 解析能力（无替代）+ 应用启动器 |
 | 对本项目 | 容器里 `~/.local/share/applications/` 大概率空，这功能用不上 |
@@ -834,13 +891,13 @@ menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now
 
 ---
 
-### 12、保留 menubar：技术可行性与成本变化
+### 5、保留 menubar：技术可行性与成本变化
 
 > **决策**：menubar 应用启动器倾向于保留。
 >
 > 这一决策让 R6 的 Gio 项从"全砍"变为"改造"，成本从 38-62 人天升到 **47-74 人天**。但关键发现是：**保留 menubar 不需要保留 LGI**——只要一个同步 Gio shim，因为 `parse_dir` 的 async 包装可以整个去掉。
 
-#### 12.1 menubar 的 Gio 真实调用面
+#### 5.1 menubar 的 Gio 真实调用面
 
 对 `lib/menubar/` 全目录（5 个 `.lua`）做词边界 grep，结果如下。
 
@@ -873,11 +930,11 @@ menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now
 **两个收敛结论**：
 
 1. **Gio 需求收敛在 `utils.parse_dir` 一个函数里**，其余 4 个 menubar 文件零 gio 调用。
-2. **全模块零 D-Bus**：对 `lib/menubar/` grep `gdbus|dbusconn|GDBus|application_id|GApplication|GSettings` → **零命中**。这条很关键——它意味着静态链接 `libgio-2.0.a` 时**不会拉进 `gdbus*.o`**，见 12.3。
+2. **全模块零 D-Bus**：对 `lib/menubar/` grep `gdbus|dbusconn|GDBus|application_id|GApplication|GSettings` → **零命中**。这条很关键——它意味着静态链接 `libgio-2.0.a` 时**不会拉进 `gdbus*.o`**，见 5.3。
 
 补充：`gio.*` / `glib.*` 这两个全局表**不是 awesome C 代码注册的**（全仓 grep 无 `"gio"`/`"glib"` 注册点），而是 LGI 的 GLib GIR 绑定注入的——`build-utils/lgi-check.c:39` 有 `assert(lgi.cairo, lgi.Pango, lgi.PangoCairo, lgi.GLib, lgi.Gio, lgi.GdkPixbuf)`。所以 R6 删 LGI 后这两个表同时消失，shim 必须把两边都补上。
 
-#### 12.2 关键发现：async 包装可以完全去掉
+#### 5.2 关键发现：async 包装可以完全去掉
 
 `parse_dir` 的 `gio.Async.start` 只是把整个函数体包进一个协程，内部的 `async_*` 方法在**同一个协程里顺序执行**：
 
@@ -926,7 +983,7 @@ end)
 
 ##### 解法：用 timer 分块，仍然不需要 Async 绑定
 
-R6 的 GLib 绑定面（8.1）本来就要实现 `glib.timeout_add` / `glib.source_remove`（给 `gears/timer.lua:102-120` 用）。**同一个绑定面就能做分块调度**，不需要协程、不需要 Async：
+R6 的 GLib 绑定面（1.1）本来就要实现 `glib.timeout_add` / `glib.source_remove`（给 `gears/timer.lua:102-120` 用）。**同一个绑定面就能做分块调度**，不需要协程、不需要 Async：
 
 ```lua
 -- 每个 tick 扫一个目录，tick 之间主循环正常跑输入和绘制
@@ -944,19 +1001,19 @@ end)
 
 让出粒度从"每 100 文件"变"每目录"，但目录数量通常只有个位数（`~/.local/share` + 几个 XDG data dir），粒度足够，且每个目录内部仍是同步扫描、总耗时不变。
 
-**结论**：12.3 的 shim 仍是纯同步 Gio + GLib，不需要 Async；只是 fork 侧 `parse_dir` 改成 timer 驱动而非 `gio.Async.start`。额外代价极小——`glib.timeout_add` 是 R6 本来就要绑的函数。**人天 8-15 不变，但 12.3 的 fork 工作量从"约 50 行"应上调到约 80-100 行**（多一个分块驱动 + 目录队列）。
+**结论**：5.3 的 shim 仍是纯同步 Gio + GLib，不需要 Async；只是 fork 侧 `parse_dir` 改成 timer 驱动而非 `gio.Async.start`。额外代价极小——`glib.timeout_add` 是 R6 本来就要绑的函数。**人天 8-15 不变，但 5.3 的 fork 工作量从"约 50 行"应上调到约 80-100 行**（多一个分块驱动 + 目录队列）。
 
-#### 12.3 方案：同步 Gio shim + fork menubar
+#### 5.3 方案：同步 Gio shim + fork menubar
 
 | 组件 | 内容 | 工作量 |
 |------|------|--------|
 | `lgishim_gio.c` | `File.new_for_path` / `enumerate_children` / `get_path` / `get_uri` / `FileInfo.get_file_type` / `FileEnumerator.{next_files,get_child,close}` + 3 常量 | 约 200-300 行 C |
-| `lgishim_glib.c` 补充 | `build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` / `KeyFile` / `KeyFileFlags`（6 个，见 12.1） | 约 70 行 |
-| fork menubar | `utils.parse_dir` 去 async 包装 + 换同步 API + **改 timer 分块驱动**（见 12.2） | 约 80-100 行 Lua |
+| `lgishim_glib.c` 补充 | `build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` / `KeyFile` / `KeyFileFlags`（6 个，见 5.1） | 约 70 行 |
+| fork menubar | `utils.parse_dir` 去 async 包装 + 换同步 API + **改 timer 分块驱动**（见 5.2） | 约 80-100 行 Lua |
 
 **人天：8-15**（原 Gio "2-4"是全砍方案）。
 
-⚠️ **这个 shim 不是 GI 反射**，是手写 C 绑定，可以完全静态链接。它需要链接 `libgio-2.0`，而 3.4 节把"砍 Gio"的理由写成省 `gio-unix` / `libmount` / `libselinux` / `libsystemd` / `libffi` 那条链——所以保留 menubar 就要把这条链静态化。**上一版把这里写成"需要实测验证的硬门槛"，实测结果是否定的，见下。**
+⚠️ **这个 shim 不是 GI 反射**，是手写 C 绑定，可以完全静态链接。它需要链接 `libgio-2.0`，而 一·3.4 节把"砍 Gio"的理由写成省 `gio-unix` / `libmount` / `libselinux` / `libsystemd` / `libffi` 那条链——所以保留 menubar 就要把这条链静态化。**上一版把这里写成"需要实测验证的硬门槛"，实测结果是否定的，见下。**
 
 ##### libgio 依赖链已静态化：docker-x11base 有落地先例
 
@@ -994,7 +1051,7 @@ bash-5.1# ldd src/pcmanfm
 | `gunixmounts.c.o` | `-luuid -lmount -lblkid` |
 | `gzlibdecompressor.c.o` | `-lz` |
 
-**日志里没有出现过 `gdbus*.o`**——因为 pcmanfm 不调 GDBus，链接器只取用到的目标文件。这正是 12.1 第 2 条的意义：menubar 同样零 D-Bus，所以拉进去的还是这 3 个文件，配方可以照抄。
+**日志里没有出现过 `gdbus*.o`**——因为 pcmanfm 不调 GDBus，链接器只取用到的目标文件。这正是 5.1 第 2 条的意义：menubar 同样零 D-Bus，所以拉进去的还是这 3 个文件，配方可以照抄。
 
 静态库来源是 Alpine 官方 `glib-static 2.70.5-r0`，同时提供 `/usr/lib/libgio-2.0.a`、`libglib-2.0.a`、`libgobject-2.0.a`（`glib-static` 把 gio-unix 并进 `gio-2.0.a`，`gunixmounts.c.o` 就在里面，不需要单独找 `libgio-unix-2.0.a`）。同一仓库里 `v-xlunch/build.sh:52`、`suckless/build.sh:167`、`yad`、`xcompmgr` 都装了 `glib-static`，说明这是仓库的常规做法。
 
@@ -1008,11 +1065,11 @@ bash-5.1# ldd src/pcmanfm
 -luuid -lmount -lblkid                # gunixmounts（一定会被拉进）
 ```
 
-注意 `-lselinux` / `-lsystemd` 出现在 **pcmanfm 动态构建的 `ldd` 输出里**，但静态构建最终没有它们——那些是 `libfm`/`libmenu-cache` 带进来的，不属于 gio 本身的依赖链。3.4 节把它们列进"要省的链"是宽泛表述，实际 menubar 不碰。
+注意 `-lselinux` / `-lsystemd` 出现在 **pcmanfm 动态构建的 `ldd` 输出里**，但静态构建最终没有它们——那些是 `libfm`/`libmenu-cache` 带进来的，不属于 gio 本身的依赖链。一·3.4 节把它们列进"要省的链"是宽泛表述，实际 menubar 不碰。
 
 **结论**：libgio 依赖链在 Alpine/musl 上**不是硬门槛，是已验证配方**。剩下的成本是"把 `OB_LIBS` 抄过来 + 跟着未定义符号日志迭代"，不是"从零验证可行性"。
 
-#### 12.4 对 R6 成本的影响
+#### 5.4 对 R6 成本的影响
 
 | 子项 | 砍 menubar（原） | 保留 menubar（新） |
 |------|-----------------|-------------------|
@@ -1028,83 +1085,29 @@ bash-5.1# ldd src/pcmanfm
 
 **增量：+9 至 +12 人天。**
 
-静态链接行从上一版的 `15-25` 下调到 `6-12`：配方照抄 `v-pcmanfm/build.sh`，剩下的工作是跟未定义符号日志迭代（见 12.3）。因合计由 Pango（15-30）主导，总计维持 47-74 不变，**降的是风险等级，不是工期**。
+静态链接行从上一版的 `15-25` 下调到 `6-12`：配方照抄 `v-pcmanfm/build.sh`，剩下的工作是跟未定义符号日志迭代（见 5.3）。因合计由 Pango（15-30）主导，总计维持 47-74 不变，**降的是风险等级，不是工期**。
 
-#### 12.5 三条出路的取舍
+#### 5.5 三条出路的取舍
 
 | 方案 | 说明 | 判定 |
 |------|------|------|
 | A. 保留 LGI 整体 | LGI 是 dlopen 反射，保留它就达不到静态化 | ❌ 回到 b15 的 R5 半静态，无实际收益 |
-| **B. 同步 Gio shim + fork menubar** | 见 12.3 | ✅ **推荐** |
+| **B. 同步 Gio shim + fork menubar** | 见 5.3 | ✅ **推荐** |
 | C. 放弃 menubar 用 `awful.menu` 手写 | 无 `.desktop` 解析，手动维护菜单 | ❌ 失去能力 |
 
-**方案 B 的关键前提已验证**：libgio 依赖链能静态化。`docker-x11base` 的 `v-pcmanfm` 在 Alpine/musl 上已产出 37.1M 全静态二进制（`ldd` 报 "Not a valid dynamic program"），`libgio-2.0.a` 只拉进 `giomodule.o` / `gunixmounts.o` / `gzlibdecompressor.o` 三个目标文件，配方见 12.3。menubar 零 D-Bus（12.1），所以不会额外拉进 `gdbus*.o`——**这条前提已从"待验证"转为"可照抄"**。
+**方案 B 的关键前提已验证**：libgio 依赖链能静态化。`docker-x11base` 的 `v-pcmanfm` 在 Alpine/musl 上已产出 37.1M 全静态二进制（`ldd` 报 "Not a valid dynamic program"），`libgio-2.0.a` 只拉进 `giomodule.o` / `gunixmounts.o` / `gzlibdecompressor.o` 三个目标文件，配方见 5.3。menubar 零 D-Bus（5.1），所以不会额外拉进 `gdbus*.o`——**这条前提已从"待验证"转为"可照抄"**。
 
-#### 12.6 小结
+#### 5.6 小结
 
 | 问 | 答 |
 |----|-----|
 | 保留 menubar 需要保留 LGI 吗 | ❌ **不需要**，绑定层不需 Async，只需同步 Gio shim |
 | 额外成本 | +9 至 +12 人天（38-62 → 47-74） |
 | ~~libgio 依赖链静态化（musl 上需实测）~~ | ✅ **已消除**，`v-pcmanfm` 先例 + 零 D-Bus |
-| 同步化的 UI 卡顿 | ⚠️ **新增风险**，首次 `Super+P` 会卡；用 `glib.timeout_add` 分块规避（见 12.2） |
+| 同步化的 UI 卡顿 | ⚠️ **新增风险**，首次 `Super+P` 会卡；用 `glib.timeout_add` 分块规避（见 5.2） |
 | 保留理由 | 应用启动器是唯一带 `.desktop` 解析的启动器 |
 | 替代 | `modkey+r` promptbox 已能覆盖命令行启动部分 |
 
 **保留 menubar 的成本就落在写 shim（8-15 天）+ 照抄 libgio 静态链接配方（6-12 天）。上一版把它写成"硬门槛"，实测证明不是：docker-x11base 已经用同一条链静态编出 37.1M 的 pcmanfm，menubar 零 D-Bus 所以更不会踩到 `gdbus` 那条分叉。**
 
-**但同步化确实引入了一个新代价：首次打开菜单时会卡 UI**。当前异步实现靠 `coroutine.yield` 让 GLib 主循环在每 100 文件之间继续处理输入（`docs/90-FAQ.md:24` 明确输入与绘制都在主线程）。规避方案是用 `glib.timeout_add` 分目录驱动，**而这个函数本就是 R6 的 GLib 绑定面（8.1）**，所以几乎零额外成本。净效果：代价不是新的人天，是新的一笔需要写对的代码。
-
----
-
-### 13、待办：把推测值变成实测值
-
-本文档的 4 个最大未知按"收益 / 成本"排序，前 4 项合计约 **3-4 天**，能把最大的 3 个不确定性从推测变成实测。
-
-#### 13.1 Pango 绑定骨架空跑（1-2 天，收益最高）
-
-按 3.2 枚举的约 25 个 API 写 C 骨架，**stub 返回固定值**，先让 `make` 通过、awesome 能启动到能画框。
-
-这一步不追求文本渲染正确，只为了量出**胶水代码实际写了多少行**。它能把 15-30 的区间收窄到实测值，是整份计划里性价比最高的一步——因为 Pango 是合计区间的主体项（7.3）。
-
-#### 13.2 跑现有 spec 建立基线（0.5 天，当前完全没做）
-
-上游自带测试可以直接复用，不需要新写：
-
-```
-spec/menubar/
-  utils_spec.lua         # 含 parse_desktop_file / KeyFile 解析
-  icon_theme_spec.lua
-  home/.icons/{icon6.xpm,icon7.svg}   # 9 个真实 fixture 文件
-  usr/share/{icon5.png,icon6.xpm,icon7.svg,.filename.png}
-  icons/awesome/{index.theme,16x16,32x32,48x48,64x64,scalable}
-```
-
-CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），在源码目录直接跑。
-
-**先确认它们在改造前是全绿的**，才能作为 shim 完成后的验收依据。这一步是 5、7.1 节"跑纯 Lua 单测子集"的真正落地方式，原文只写了概念没有列具体文件。
-
-#### 13.3 timer 分块原型对比（0.5 天）
-
-在**现有 LGI 环境**上把 `utils.parse_dir` 改成 12.2 的 timer 驱动版本，对比输出与异步版是否一致。
-
-不需要等 shim 写完就能验证 12.2 的设计。这也是 12.3 里 fork menubar "约 80-100 行" 的直接依据。
-
-#### 13.4 awesome 本体静态链接 dry-run（1 天）
-
-在 Alpine 容器里按 12.3 的配方试链**当前 upstream awesome**，确认产物量级和 `ldd` 结果。
-
-12.3 的先例只证明了"pcmanfm 能静态链"，这一步要证明的是"配方可迁移到 awesome"。两者不是一回事——awesome 还要引入 cairo/pango/fontconfig/harfbuzz，虽然同一条链里 pcmanfm 已经静态链过这几个库，但组合方式不同。
-
-#### 13.5 cairo API 语义核查（0.5 天，风险低，排最后）
-
-`cairo.Context` 已数出 28 个方法、约 450 处调用（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 51、`cr:rectangle` × 38、`cr:paint` × 34、`cr:stroke` × 32……），但 `shape.lua`（28 处）和 `wibox/hierarchy.lua`（12 处）的具体语义还没看过。排在 Pango 后面，因为 cairo 有活的官方库 oocairo 可参照（10.1）。
-
-#### 13.6 做完之后的判断标准
-
-| 结果 | 判断 |
-|------|------|
-| 13.1 骨架 < 300 行 | Pango 落在 15-20，合计 **38-52** 可信 |
-| 13.1 骨架 > 600 行 | Pango 落到 30+，R6 合计可能破 70，需重评 R7（dwm） |
-| 13.2 spec 改造前就不全绿 | 5、7.1 的"测试回归 6-8"低估，需重估 |
-| 13.4 awesome 链不过 | 12.3 的"已消除"要撤回，回到"硬门槛" |
+**但同步化确实引入了一个新代价：首次打开菜单时会卡 UI**。当前异步实现靠 `coroutine.yield` 让 GLib 主循环在每 100 文件之间继续处理输入（`docs/90-FAQ.md:24` 明确输入与绘制都在主线程）。规避方案是用 `glib.timeout_add` 分目录驱动，**而这个函数本就是 R6 的 GLib 绑定面（1.1）**，所以几乎零额外成本。净效果：代价不是新的人天，是新的一笔需要写对的代码。
