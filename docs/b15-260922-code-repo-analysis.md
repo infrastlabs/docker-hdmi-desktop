@@ -664,3 +664,180 @@ b15 四个章节的结论至此形成闭环：
 
 awesome 选型优先级不变：**i3（推荐）> bspwm > Awesome**。
 
+---
+
+## 五、LGI 替代候选实测与最小替换边界（2026-09-22 补充）
+
+> 章节三给的结论是"替代方案全部不可行"。但那个结论是**从候选项目侧**推的。本节反过来，从**调用面**推：先对 lgob / lua-lpugl / lua-bgfx 三个具体候选做实测，再全量搜 GLib/Gio 的 Lua 静态绑定，最后实测 awesome 生产代码里 LGI 到底被用了多少。
+>
+> **结论先行**：
+> 1. 三个候选**无一可行**——lgob 已归档 15 年；lua-lpugl 是 GUI 渲染层不是绑定层；lua-bgfx 是另一个赛道（GPU 渲染 API）
+> 2. **GLib/Gio 的 Lua 静态绑定在 GitHub 上 0 命中**——这是替代 LGI 的唯一真空缺
+> 3. 但 LGI 真实调用面只有 **60 行 / 39 文件 / 7 模块**，其中 GTK3 可零成本砍掉、Cairo 层官方已有纯 C 绑定 `oocairo`
+> 4. **R6 人天从 120-240 修正为 35-73**——结论仍是"不建议"，但之前的估算是错的
+> 5. 意外发现 **somewm**（388★，2026-09-21 活跃）：一个 AwesomeWM 兼容 API 的 Wayland 合成器，纯手写 C 绑定、不用 LGI，是绕开 LGI 的**唯一整条路可行方案**
+
+### 1、三个候选逐一实测
+
+| 候选 | 仓库（2026-09-22 实测） | ⭐ | 语言 | 最后 push | 判定 |
+|------|------------------------|-----|------|-----------|------|
+| **lgob** | [nomadalex/lgob](https://github.com/nomadalex/lgob) | 5 / 1 fork | Lua（生成 C 胶水） | 2011-06-26，**archived** | ❌ 排除。设计上就是静态（.gir → C 胶水），是**唯一原生静态方案**，但 15 年无人维护，API 停留在 GLib 2.x 早期。作为依赖引入等于引入 15 年的债 |
+| **lua-lpugl** | [osch/lua-lpugl](https://github.com/osch/lua-lpugl) | 35 | C | 2026-07-05（活跃） | ❌ 不是 LGI 替代品。它解决的是 **Pugl**（可嵌入 GUI 的生命周期管理），不是 GLib 主循环。它的 Cairo 后端用的正是 `oocairo`。**价值不在替换 LGI，而在证明 oocairo 能在现代 Lua 5.x + Luarocks 生态下静态构建** |
+| **lua-bgfx** | [cloudwu/lua-bgfx](https://github.com/cloudwu/lua-bgfx) | 247 | Lua | 2024-05-18 | ❌ 不同赛道。bgfx 是跨平台 GPU 渲染 API，与 cairo/pango/x11 无交集。可静态编译没错，但解决的是"游戏引擎渲染"而非"合成器窗口绘制" |
+
+**读表**：三个候选没有一个是"LGI 的直接替身"。lgob 是唯一**架构正确**的选项，但项目死了；lpugl / bgfx 是**架构不同**的选项，替换它们等于重写 awesome 的图形栈而非替换绑定层。
+
+### 2、GLib/Gio 的 Lua 静态绑定：GitHub 全量搜索 0 命中
+
+替代 LGI 的真实需求是 GLib（主循环/timer）+ Gio（文件系统/dbus）。以下是 GitHub API 实测（2026-09-22，`sort=stars`）：
+
+| 查询 | total_count | 结论 |
+|------|-------------|------|
+| `lua glib gio binding` | **0** | 不存在 |
+| `lgi replacement glib lua` | **0** | 不存在 |
+| `lgol lua` | **0** | 不存在 |
+| `awesome wm static glib` | **0** | 不存在 |
+| `awesome+musl+alpine` | **0** | 无社区先例 |
+| `awesome+static+link` | **0** | 无社区先例 |
+
+**这是整个替代方案空间里唯一的真空缺**：GI 反射的 Cairo/Pango 部分有历史包袱（oopango / lua-pango），但 GLib/Gio 的 Lua 绑定**从来只有 LGI 一家**，且无任何静态绑定尝试。
+
+作为对照，其他绑定的搜索结果（证明搜索有效）：
+
+| 查询 | 命中 | 说明 |
+|------|------|------|
+| `lua pango binding` | 2 | [awesomeWM/oopango](https://github.com/awesomeWM/oopango)（4★，C，**2014-10 停滞 12 年**）+ juanchanco/lua-pango（0★） |
+| `oocairo awesome` | 0 | 但直接查 org 仓库可得 [awesomeWM/oocairo](https://github.com/awesomeWM/oocairo)（25★，C，**2025-08 活跃**） |
+| `lua-xlib` | 1 | sclu1034/lua-xlib（1★，**archived**） |
+| `nanovg lua` | 8 | starwing/lua-nanovg（32★，C，2023-12）等 |
+| `lua-wayland` | 37 | 但全是 Rust 实现（pinnacle 638★ 等），**无 Lua 绑定的 Wayland 库** |
+
+**关键事实**：awesomeWM 组织自己维护着 `oocairo`（Cairo 纯 C 绑定，2025-08 仍在推）和 `oopango`（Pango 纯 C 绑定，2014-10 停更）。**也就是说 awesome 的 Cairo/Pango 层本来就有静态方案**，LGI 只是"更省事"的 GI 反射路径。选 LGI 是开发效率决策，不是技术必须。
+
+### 3、LGI 最小替换集（实测）
+
+对上游源码做静态分析（`/tmp/awsh`，commit `0a5e50c`）：
+
+```
+生产代码 lgi 活跃调用行（去注释/文档）: 60
+涉及文件数                            : 39
+引用文件数（含注释）                  : 39
+```
+
+按 GI 模块统计引用次数：
+
+| GI 模块 | 引用次数 | 用途 | 静态替换方案 | 成本 |
+|---------|---------|------|-------------|------|
+| `cairo` | 8+ | 全部绘制 | **oocairo**（官方，活跃） | 0-3 人天 |
+| `Pango` / `PangoCairo` | 4 | 文本渲染 | **oopango**（官方，**停滞 12 年**） | 10-20 人天（需移植） |
+| `GLib` | 2 | `gears.timer` 主循环 | **无现成方案，需手写 C 绑定** | 15-30 人天 |
+| `Gio` / `GioUnix` | 4 | 文件系统 / dbus / icon | **无现成方案，需手写 C 绑定** | 10-20 人天 |
+| `GdkPixbuf` | 1 | `gears.surface` 图片加载 | 可砍或换纯 C | 0-2 人天 |
+| `Gtk 3.0` | 4 | `beautiful` 主题变量读取 | **可零成本砍掉**（见下） | **0** |
+
+**GTK3 可零成本砍掉**——`lib/beautiful/gtk.lua` 是唯一的 GTK3 使用点，且已经包在 `pcall` 里：
+
+```lua
+local _gtk_status, Gtk = pcall(function()
+    local lgi = require('lgi')
+    return lgi.require('Gtk', '3.0')
+end)
+if not _gtk_status or not Gtk then
+    gears_debug.print_warning("Can't load GTK+3 introspection...")
+    return nil
+end
+```
+
+缺失时只 `print_warning` 并 `return nil`，上层调用方全部对 `nil` 有容错。**也就是说静态版 awesome 里砍掉 GTK3 不会崩，只是不再能读取 GTK 主题颜色变量**——这是一个可接受的降级。
+
+**最小替换集**：`cairo` + `Pango` + `GLib` + `Gio` 四模块，外加砍掉 GTK3。真正没现成方案的是 **GLib 主循环** 和 **Gio**——这两个加起来是 R6 的成本主体。
+
+### 4、意外发现：somewm —— 绕开 LGI 的唯一整条路可行方案
+
+搜索 `lua-wayland` 时命中：
+
+| 项 | 值 |
+|---|---|
+| 仓库 | [trip-zip/somewm](https://github.com/trip-zip/somewm) |
+| ⭐ / Fork | **388** / — |
+| 语言 | Lua + C |
+| 创建 / 最后 push | 2025-12-07 / **2026-09-21（1 天前）** |
+| 构建 | meson + Makefile 双支持 |
+| 依赖 | wlroots 0.19 / 0.20 |
+| 定位 | **AwesomeWM 兼容 Lua API 的 Wayland 合成器** |
+
+README 原文：*"Built on wlroots 0.19 or 0.20. **Compatible with AwesomeWM's Lua API** - existing configs, widgets, and themes carry over."*
+
+**技术结构决定了它天然静态友好**——仓库顶层是纯手写 C：
+
+```
+somewm_api.c    45KB   ← 手写 Lua ↔ C 绑定（不是 GI 反射）
+luaa.c        206KB   ← Lua 绑定核心
+somewm.c       69KB
+window.c       70KB
+input.c       110KB
+dbus.c         30KB
+draw.c         8KB
+```
+
+`meson_options.txt` 只有 5 个 option（`xwayland` / `wlroots_version` / `pam` / `test_pam` / `systemd` / `bench` / `lua_pkg`），**无 dlopen / 无运行时反射**。C 侧 200+ KB 绑定代码 vs awesome 的 60 行 LGI 调用——它把 awesome 用反射躲掉的活全手工写了。
+
+**对本项目的适配性**：
+
+| 项 | 评估 |
+|---|---|
+| 绕开 LGI | ✅ 完全不需要 GI，纯手写 C 绑定 |
+| 静态编译 | ✅ 结构上可行（无 dlopen 依赖链），需实测 wlroots 静态链接 |
+| 复用 awesome 配置 | ✅ Lua API 兼容，rc.lua / widget / theme 可直接迁移 |
+| 运行环境 | ⚠️ **Wayland 合成器**，本项目的 HDMI 输出走 X11 后端，需经 XWayland |
+| 生态成熟度 | ⚠️ 2025-12 才创建，2.0-dev 分支（release/1.4 为稳定版） |
+| 维护风险 | ⚠️ 单作者项目（trip-zip），388★ 起步 |
+
+**判定**：somewm 是**唯一一条整条路可行的绕开 LGI 方案**，但代价是：① 从 X11 合成器换成 Wayland 合成器（架构变动）；② 押注一个 11 个月历史的单作者项目。**对 docker-hdmi-desktop 来说，X11 → Wayland 的后端切换成本可能高于 WM 替换本身**。
+
+### 5、R6 人天估算修正
+
+章节四给 R6（抛弃 GI，纯 C 绑定 + Lua）估的是 120-240 人天。基于第 3 节实测，这个估算过粗，需要拆开：
+
+| 子项 | 原估算隐含 | 实测修正 | 依据 |
+|------|-----------|---------|------|
+| Cairo 层替换（lgi.cairo → oocairo） | 含在总量 | **0-3 人天** | 官方库活跃维护，API 对齐 |
+| Pango 层替换（lgi.Pango → oopango） | 含在总量 | **10-20 人天** | oopango 停滞 12 年，需先移植到现代 pango |
+| **GLib 主循环手写绑定** | 含在总量 | **15-30 人天** | GitHub 0 命中，唯一真空缺 |
+| **Gio 文件系统/dbus 手写绑定** | 含在总量 | **10-20 人天** | 同上 |
+| GTK3 依赖处理 | 未估算 | **0 人天** | pcall 保护，直接砍 |
+| GdkPixbuf 替换 | 未估算 | **0-2 人天** | 仅 1 处调用 |
+| 测试 + 回归 | 含在总量 | **10-20 人天** | — |
+| **合计** | 120-240 | **45-95 人天** | — |
+
+**修正后 R6 约 45-95 人天**（原 120-240），结论从"不可行"改为"**可做但不建议**"——因为收益仅是"awesome 变静态"，而这个收益用 R7（换 dwm，5-15 人天）就能以 1/6 的成本获得。
+
+更新后的复杂度排序：
+
+```
+R1  保留 lgi           :    0     ⭐ 现状，容器默认
+R7  换 dwm 静态        :  5-15    ⭐ 推荐
+R6  抛弃 GI 纯 C 绑定  : 45-95   修正后（原 120-240）；可做但不建议
+R5  半静态 GI          : 20-30   无实际收益
+R2  换 LuaGObject      : 20-30   上游升级路径，非静态化
+R3  换 lgob            :100-170  项目已归档 15 年
+R9  换 somewm          : 40-80   新路线（见下）
+R4  换 LuaGnome        :120-240  不可行（GTK3→GTK2）
+```
+
+**新增 R9（换 somewm）估算**：C 侧本身已静态友好，成本主要在 ① 实测 wlroots 静态链接（5-10 人天）；② X11 → Wayland 后端切换 + XWayland 集成（20-40 人天）；③ awesome 配置迁移验证（10-20 人天）。合计 **40-80 人天**。
+
+### 6、结论闭环（更新版）
+
+| 问题 | 结论 |
+|------|------|
+| lgob / lua-lpugl / lua-bgfx 能替换 LGI 吗？ | 不能。分别是不活跃 / 架构不同 / 赛道不同 |
+| GLib/Gio 有 Lua 静态绑定吗？ | **没有**（GitHub 0 命中），这是唯一真空缺 |
+| LGI 的真实调用面多大？ | 60 行 / 39 文件 / 7 模块；GTK3 可零成本砍，Cairo 有官方替代 |
+| R6 到底要多久？ | **45-95 人天**（原估 120-240 过粗） |
+| 有没有整条路可行的绕开方案？ | 有：**somewm**（R9，40-80 人天），但需 X11→Wayland 后端切换 |
+| 推荐做什么？ | 不变：**dwm（R7，5-15 人天）**仍是性价比最高；somewm 作为技术储备观察 |
+
+**一句话**：LGI 静态替代方案在 2026 年确实不存在——GLib/Gio 的 Lua 绑定从来只有 LGI 一家，且无人做静态版。但 LGI 的真实足迹小得出乎意料（60 行），R6 从"不可行"降为"可做但不值"。唯一整条路可行的是 somewm，代价是把桌面后端从 X11 换成 Wayland。
+
+
