@@ -1,6 +1,6 @@
 # b15-260922 | 代码仓库分析
 
-> 主题：awesomeWM 生态的代码仓库分析。本文档按节展开，目前收录 **fork / 改名项目** 与 **上游仓库本体结构** 两节，组织仓库与方法学沉淀待后续补充。
+> 主题：awesomeWM 生态的代码仓库分析。本文档按节展开，目前收录 **fork / 改名项目**、**上游仓库本体结构**、**静态编译改造可行性** 三节，组织仓库与方法学沉淀待后续补充。
 > 背景：延续 b11 十二章"除了 Awesome，还有别的 Lua 配置平铺 WM 吗"的结论，进一步排查 **AwesomeWM 自己的 fork 与改名/移植项目**——既然没有第二个 Lua 平铺 WM，那"养在 Awesome 旁边的平行项目"能不能当后备选项？
 > 说明：GitHub API 未认证限额 60 次/小时，本次已耗尽，全部结论用 `git fetch --filter=blob:none` 走 git 协议实测，数据可信。快照日期 2026-09-22。
 
@@ -222,3 +222,149 @@ Lua 占文件数 **69.8%**（883/1265）。
 - `objects/`（12 个 `.c`）是 Lua 对象系统所在层，GabrielHoy 的 Luau 移植（第 2 节，ahead=23）如果要保持配置兼容，绕不开这一层——这也解释了该移植为何进展慢。
 - `awful/` 占 `lib/` 近一半体量，任何"更轻的 Awesome 变体"都必须动这一层，风险集中。
 - 容器路线结论不变：`apk add awesome` 用上游本体（见 b10），无更轻替代；选型优先级 i3 > bspwm > Awesome 不变。
+
+## 二、静态编译改造可行性分析（对标 gitee docker-x11base）
+
+> 参照仓库：`gitee.com/infrastlabs/docker-x11base`（HEAD `ec370b896a6e`，212 文件），已把 dwm / openbox / fluxbox / pulseaudio / xrdp / tigervnc / x11vnc / dropbear / tint2 / xcompmgr 等 20+ 组件在 musl/Alpine 上全静态编译落地。
+> 结论先行：**方法论可照搬，但它的适用边界恰好卡在 dlopen 链——它做的 20 多个项目全部没有 GI 反射，awesome 是唯一做不了的那个。全静态改造 awesome 不可行；半静态可行但对容器收益 ≈ 0。**
+
+### 0、参照仓库概况
+
+| 项 | 值 |
+|----|----|
+| 仓库 | `gitee.com/infrastlabs/docker-x11base`，HEAD `ec370b896a6e` |
+| 规模 | 212 文件（源码 + docs + rootfs + pkgs + compile） |
+| 定位 | 跨发行版桌面容器（musl/deb/rpm 系 12+ 发行版），特色是 **suckless misc 静态编译产物可跨发行版通用** |
+| 已落地静态编译 | dwm、st、dmenu、openbox、fluxbox、xcompmgr、tint2、xlunch、feh、pcmanfm、lxde、geany、tigervnc、x11vnc、xrdp、pulseaudio、dropbear、perp、n2n、tinc 等 20+ |
+| 构建入口 | `compile/`（builder 镜像 + 多 stage Dockerfile + 各组件 `build.sh`） |
+
+**关键事实：全仓 212 文件 grep 不到任何 awesome**（`grep -ril "awesome"` 返回空）。20+ 个组件全部在纯 C / 无 GI 反射范畴——见 3.1 节，这是"awesome 全静态做不到"的最直接外部佐证。
+
+### 1、参照仓库的静态编译方法论（4 层）
+
+| 层 | 做法 | 出处 |
+|----|------|------|
+| 1. 构建器 | `tonistiigi/xx` 交叉工具链 + `alpine:3.15` + UPX 4.0.1 | `builder/Dockerfile.builder` |
+| 2. 依赖静态化 | 两条路：`apk add *-static` 取现成静态库；或源码自编 `--disable-shared --enable-static`（meson 项目用 `-Ddefault_library=static`） | `openbox/build.sh` 的 `pango()`、`libxrandr()`、`fontconfig()` |
+| 3. 主程序链接 | `LDFLAGS="-Wl,--as-needed --static -static -Wl,--strip-all"` + `CFLAGS="-Os -fomit-frame-pointer"` + `CC=xx-clang` | `compile/src/common.sh` |
+| 4. 校验压缩 | `xx-verify --static <bin>` 逐个验 + `upx` | 每个 `build.sh` 末尾 |
+
+**两个关键技巧值得抄**：
+
+```sh
+# openbox：libtool 会重排 LDFLAGS 参数，必须用 start/end-group 包住整串库
+LDFLAGS="$LDFLAGS -Wl,--start-group $OB_LIBS -Wl,--end-group"
+
+# openbox：静态化时主动关掉一批可选功能（7 个 --disable）
+--disable-nls --disable-xcursor --disable-librsvg
+--disable-startup-notification --disable-session-management
+--disable-xkb --disable-xinerama
+```
+
+**最关键的一行**在 openbox 编 pango 时：
+
+```sh
+abuild-meson -Ddefault_library=static \
+             -Dintrospection=disabled \   # ← 就是这一行
+             -Dgtk_doc=false
+```
+
+openbox 的做法是**把 introspection 整个关掉**，它有这个开关。awesome 没有。
+
+### 2、主体需要改造的内容项（按可改造性三级）
+
+#### A 类：可以照搬，纯工程活（5 项）
+
+| # | 改造项 | 具体做法 | 参考 |
+|---|--------|---------|------|
+| 1 | builder 镜像 | 复刻 `Dockerfile.builder`：alpine + `tonistiigi/xx` 交叉工具链 + UPX | 直接抄 |
+| 2 | Dockerfile 多阶段 | 仿照 `compile/Dockerfile`（374 行）的 `FROM base AS xxx` 分 stage，每个 WM 一个 stage，各自 `ARG COMPILE_XXX=yes` 开关 | `compile/Dockerfile` |
+| 3 | 依赖静态化 | awesome 需 **22 个 pkg-config 依赖**（`xcb` + `glib-2.0`、`gdk-pixbuf-2.0`、`cairo`、`cairo-xcb`、`x11`、`xcb-cursor`、`xcb-randr`、`xcb-xtest`、`xcb-xinerama`、`xcb-shape`、`xcb-util`、`xcb-keysyms`、`xcb-icccm`、`xcb-xfixes`、`xcb-xkb`、`xcb-xrm`、`xkbcommon`、`xkbcommon-x11`、`libstartup-notification-1.0`、`xproto`、`libxdg-basedir`），逐个找 `*-static` 包或源码自编 | `awesomeConfig.cmake:130-165` |
+| 4 | 链接参数 | `-static` + `-Wl,--start-group/--end-group` 包整套库 | `openbox/build.sh` |
+| 5 | 项目集成 | 本项目侧：新增 `src/Dockerfile.app-alpine-static`、`.arg` 加 `STATIC_WMS=1`、`entry-x11base.sh` 的 `oneVnc()` 加分支 | 本仓 AGENTS.md 模式 |
+
+#### B 类：改完也没用（1 项）
+
+| # | 改造项 | 为什么没用 |
+|---|--------|-----------|
+| 6 | 静态链接整套依赖（glib/cairo/pango/gdk-pixbuf） | 就算 22 个库全部 `-static` 成功链入，`require("lgi")` 依然要 dlopen。b10 七.2 已证：`-rdynamic` / `ENABLE_EXPORTS` 恰恰证明符号必须暴露给运行时加载的 `lgi.so` |
+
+#### C 类：真正的障碍，无改造方案（1 项）
+
+| # | 障碍项 | 实证 |
+|---|--------|------|
+| 7 | **LGI → GI 反射链** | `grep -in "lgi\|introspection" CMakeLists.txt` 只返回 Lua 静态库那两行注释——**没有任何 CMake 开关能关掉** |
+
+### 3、会失效的细节功能（按依赖链分组，均有源码实证）
+
+#### 3.1 最先死的：`require("gears")` 就立即加载
+
+`awesomerc.lua`（585 行）第 1 行是 `pcall(require, "luarocks.loader")`，第 4 行是 `local gears = require("gears")`。而 `lib/gears/init.lua` 是**立即加载 16 个子模块**，其中 `color`、`surface`、`object`、`timer`、`wallpaper`、`shape` 全部直接 `require("lgi")`。
+
+即：**默认配置一个字符都跑不到**。更绝的是 C 内核自己也探 lgi：
+
+```c
+// common/version.c:51  eprint_version()
+(void) luaL_dostring(L, "return require('lgi.version')");
+```
+
+连 `awesome --version` 都依赖 lgi 能加载。
+
+#### 3.2 逐条失效清单
+
+| 功能 | 断链点 | 实证 |
+|------|--------|------|
+| **所有 wibox widget 的绘制** | `wibox/drawable.lua:17` → `require("lgi").cairo` | **这一行是所有 widget 的绘制总入口** |
+| **时间时钟 textclock** | `textclock.lua:51` → `require("lgi").GLib` | 定时器走 GLib main loop |
+| **任务栏/布局/菜单图标** | `lgi.GdkPixbuf` | `naughty/core.lua`、`beautiful/init.lua` 均消费 `gears.surface` |
+| **通知系统 naughty** | 图标 + 超时 + 布局 | `naughty/` 下 **5/6** 文件依赖 lgi；`gears.timer` 消费点 4 处 |
+| **主题系统 beautiful** | 颜色全走 `gears.color` | **35 个文件**依赖 `gears.color` |
+| **菜单栏 menubar** | D-Bus 菜单 + GdkPixbuf 图标 | `menubar/` 下 **3/5** 文件依赖 lgi |
+| **壁纸 awful.wallpaper** | cairo surface | `gears/wallpaper.lua` → `gears.surface` |
+| **对象/信号/属性系统** | `gears.object` 基类 | 消费方：awful 11 + gears 4 + naughty 3 + wibox 2 + ruled 2 + wibox/widget 1 |
+| **滚动容器** | `gears.timer` | `wibox/container/scroll.lua` |
+| **异步命令输出 awful.widget.watch** | `lgi.Gio` 异步流 | b10 十.2 / lgi #363 |
+| **第三方模块（Lain/bling/vicious）** | `require()` 加载 C 模块 | 全要 dlopen，一个都装不上 |
+| **luarocks 加载器** | `pcall(require, "luarocks.loader")` 是 awesomerc 第 1 行 | 直接死 |
+
+#### 3.3 还能活的（纯 C 路径，无 lgi）
+
+| 功能 | 依据 |
+|------|------|
+| 键盘/鼠标抓取（keygrabber/mousegrabber） | 纯 C，无 lgi |
+| EWMH、窗口管理核心、tag/client/stack | C 内核 |
+| `ruled` 规则引擎 | `grep -c "lgi\|gears.object" lib/ruled/init.lua` → **0** |
+| D-Bus 会话总线 | 纯 C，libdbus 可静态 |
+| X11 基础 / xcb 系列 | 纯 C |
+
+`awful.placement`（窗口放置算法）仅 **1** 处引用、`wibox/layout/grid`（布局计算）也仅 **1** 处——**纯布局逻辑本身可救，救不了的是渲染**。
+
+#### 3.4 影响面量化
+
+- `lib/` 下 **51 / 170** 个 Lua 文件直接依赖 lgi 或 `gears.object`（**30%**）
+- 加上间接依赖（`gears.color` 35 个消费方），实际影响面远超 30%
+- 参照仓库对照：fluxbox 静态化只关 1 个开关（`--enable-xinerama=no`），openbox 关 7 个就成；**awesome 要关的开关数量是"整套 widget 层"，不是一个 flag 的问题**
+
+### 4、结论：三条路径对比
+
+| 路径 | 代价 | 保留 awesome 能力 | 结论 |
+|------|------|------------------|------|
+| **① 照搬方法论做 dwm/fluxbox/openbox 静态版** | 低（有现成脚本） | 不适用（换 WM） | **推荐** |
+| **② awesome 半静态**（静态 liblua + 动态 lgi/GI） | 中 | 全保留 | 对容器**收益 ≈ 0**（b10 七.2.1） |
+| **③ awesome 全静态** | 需放弃 GI、手写全套 C 绑定（≈ 重写半个 awesome） | 只剩纯 C 部分 | **不可行** |
+
+参照仓库方法论本身成熟、可抄，**但它的适用边界恰好卡在 dlopen 链**——它做的 20 多个项目全部没有 GI 反射，所以它从来没碰到过这个问题。这也解释了第 0 节为什么整库 grep 不到 awesome：不是漏了，是做不到。
+
+### 5、对本项目的影响
+
+- **如果目标其实是"容器里跑静态 WM"，路径 ① 回报远高于 ②③**：dwm 静态化参照仓库里有现成脚本，核心就是
+
+```sh
+flags="-static -lXft -lX11 -lxcb -lXau -lfontconfig -lfreetype -lXrender -lXdmcp \
+       -lpng -lexpat -lxml2 -lz -lbz2 -lbrotlidec -lbrotlicommon"
+make LDFLAGS="$flags -lXinerama -lX11 -lXxf86vm -lXcursor -lm -ldl -lrt -lXext -luuid"
+```
+
+  配合 `config.mk` 里 `sed` 改 `PREFIX`，直接出单文件。
+- **落地顺序建议**：先用路径 ① 在本项目做 dwm（`compile/src/suckless/build.sh` 可直接照抄，`config.mk` + `LDFLAGS` 两处改动），验证"静态 WM 走 xvnc2.sh / entry-x11base.sh 的 perp 服务模式"这条集成链；dwm 通了再考虑 fluxbox/openbox（openbox 需先自编 pango + fontconfig + libXrandr 三个依赖）。
+- **awesome 侧结论不变**：b10 的"全静态不可行"判断被参照仓库的完整落地清单反证强化（见第 0 节 grep 空结果）——同一套成熟方法论，20 多个项目成了，awesome 一个都没做。容器路线仍是 `apk add awesome`，选型优先级 i3 > bspwm > Awesome 不变。
