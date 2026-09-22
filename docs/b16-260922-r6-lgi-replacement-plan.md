@@ -822,26 +822,72 @@ menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now
 
 #### 12.2 关键发现：async 包装可以完全去掉
 
-`parse_dir` 的 `gio.Async.start` 只是把整个函数体包进一个协程，内部的 `async_*` 方法在**同一个协程里同步执行**。看实现：
+`parse_dir` 的 `gio.Async.start` 只是把整个函数体包进一个协程，内部的 `async_*` 方法在**同一个协程里顺序执行**：
 
 ```lua
 gio.Async.start(do_protected_call)(function()
     local result = {}
-    parser(gio.File.new_for_path(dir_path), result)  -- 递归同步执行
+    parser(gio.File.new_for_path(dir_path), result)  -- 递归
     call_callback(callback, result)
 end)
 ```
 
-内部 `parser` 函数用 `async_enumerate_children` → `async_next_files` → `async_close`，**全在同一个协程内顺序执行**，没有真正的并发。
+内部 `parser` 用 `async_enumerate_children` → `async_next_files(100)` → `async_close`。
 
-**所以可以直接换成同步 API**：
+**所以 shim 侧不需要实现 `gio.Async.start`**——那是 Lua 协程 + GLib source 的配合，是异步绑定里最难的部分。可直接换同步 API：
 
 - `async_enumerate_children` → `enumerate_children`
 - `async_next_files` → `next_files`
 - `async_close` → `close`
 - **删掉 `gio.Async.start` 包装**
 
-收益：**不需要实现 `gio.Async.start`**——那是 Lua 协程 + GLib source 的配合，是异步绑定里最难的部分。
+这里说的是**绑定层**不需要 Async 机制。但这**不等于可以无脑同步化**——同步化会引入 UI 卡顿，见下。
+
+##### ⚠️ 同步化的代价：会卡 UI（上一版遗漏了这条）
+
+`async_*` 不只是"没有并发"这么回事——**每个 `async_*` 调用都 `coroutine.yield()`，控制权回到 GLib 主循环，主循环继续处理输入和绘制**。当前实现是协作式的：每 100 个条目让出一次。
+
+| 位置 | 证据 |
+|------|------|
+| `utils.lua:97-103` | 运行时探测 "yieldable pcall"，注释原文 *"Lua 5.1 cannot yield across a protected call"* —— 整个扫描跑在**会 yield 的协程**里 |
+| `menu_gen.lua:78-83` | `generate` 签名带 callback、注释 `@noreturn` |
+| `docs/89-NEWS.md:1281` | *"`menubar.menu_gen.generate` is now asynchronous and needs a callback as an argument"* —— 上游**刻意**改成异步 |
+| `docs/90-FAQ.md:24-27` | *"All input events (keyboard and mouse) are processed in the main thread. The drawing is also locking the main thread to avoid artifacts and race conditions."* |
+| `docs/90-FAQ.md:34-36` | *"prefer ... the GIO async API. Even if you \*think\* a command is fast enough and won't impact the main event loop iteration time, you are wrong. **Every** call to `io.open` is impacted by the system `iowait` queue and can spend hundreds of milliseconds blocked \*before\* being executed."* |
+
+所以主循环确实会在 yield 之间跑。**同步化 = 整个递归扫描期间零让出。**
+
+**会卡在哪**（按 `parser` 实际执行路径）：
+
+1. 递归遍历 `~/.local/share/applications` + 所有 XDG data dir 的 `applications/` 子目录（`menu_gen.lua:28-29` 注释 *"The search is recursive."*）
+2. **每个 `.desktop` 文件** `parse_desktop_file`：`KeyFile:load_from_file` 是**同步**文件读（`utils.lua:269-270`），在 `utils.lua:389` 被 `pcall` 包住。**这一步在当前异步版本里也不 yield**——只是每 100 个文件让出一次
+3. `menu_gen.lookup_category_icons()`（`menu_gen.lua:86`）
+
+准确说法：**当前版本不是不卡，是把卡顿切成每 100 文件一段；同步化是切成一整段。**
+
+**但影响是一次性的**：`menubar.cache_entries = true`（`init.lua:89`），`menu_gen.generate` 只在首次 `menubar.show()` 调用一次（`init.lua:480-482`），之后复用 `menubar.menu_entries`。卡顿发生在**每次 awesome 会话首次按 Super+P**，不是每次打开菜单。
+
+##### 解法：用 timer 分块，仍然不需要 Async 绑定
+
+R6 的 GLib 绑定面（8.1）本来就要实现 `glib.timeout_add` / `glib.source_remove`（给 `gears/timer.lua:102-120` 用）。**同一个绑定面就能做分块调度**，不需要协程、不需要 Async：
+
+```lua
+-- 每个 tick 扫一个目录，tick 之间主循环正常跑输入和绘制
+local queue = { unpack(menu_gen.all_menu_dirs) }
+glib.timeout_add(glib.PRIORITY_DEFAULT, 0, function()
+    local dir = table.remove(queue, 1)
+    if dir then
+        local entries = parse_dir_sync(dir)      -- 同步扫一个目录
+        protected_call(callback, entries)
+        return glib.SOURCE_CONTINUE
+    end
+    return glib.SOURCE_REMOVE
+end)
+```
+
+让出粒度从"每 100 文件"变"每目录"，但目录数量通常只有个位数（`~/.local/share` + 几个 XDG data dir），粒度足够，且每个目录内部仍是同步扫描、总耗时不变。
+
+**结论**：12.3 的 shim 仍是纯同步 Gio + GLib，不需要 Async；只是 fork 侧 `parse_dir` 改成 timer 驱动而非 `gio.Async.start`。额外代价极小——`glib.timeout_add` 是 R6 本来就要绑的函数。**人天 8-15 不变，但 12.3 的 fork 工作量从"约 50 行"应上调到约 80-100 行**（多一个分块驱动 + 目录队列）。
 
 #### 12.3 方案：同步 Gio shim + fork menubar
 
@@ -849,7 +895,7 @@ end)
 |------|------|--------|
 | `lgishim_gio.c` | `File.new_for_path` / `enumerate_children` / `get_path` / `get_uri` / `FileInfo.get_file_type` / `FileEnumerator.{next_files,get_child,close}` + 3 常量 | 约 200-300 行 C |
 | `lgishim_glib.c` 补充 | `build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` / `KeyFile` / `KeyFileFlags`（6 个，见 12.1） | 约 70 行 |
-| fork menubar | `utils.parse_dir` 去 async 包装 + 换同步 API | 约 50 行 Lua |
+| fork menubar | `utils.parse_dir` 去 async 包装 + 换同步 API + **改 timer 分块驱动**（见 12.2） | 约 80-100 行 Lua |
 
 **人天：8-15**（原 Gio "2-4"是全砍方案）。
 
@@ -941,10 +987,13 @@ bash-5.1# ldd src/pcmanfm
 
 | 问 | 答 |
 |----|-----|
-| 保留 menubar 需要保留 LGI 吗 | ❌ **不需要**，async 包装可去掉，只需同步 Gio shim |
+| 保留 menubar 需要保留 LGI 吗 | ❌ **不需要**，绑定层不需 Async，只需同步 Gio shim |
 | 额外成本 | +9 至 +12 人天（25-40 → 34-52） |
-| 新增风险 | ~~libgio 依赖链静态化（musl 上需实测）~~ → **已消除**，`v-pcmanfm` 先例 + 零 D-Bus |
+| ~~libgio 依赖链静态化（musl 上需实测）~~ | ✅ **已消除**，`v-pcmanfm` 先例 + 零 D-Bus |
+| 同步化的 UI 卡顿 | ⚠️ **新增风险**，首次 `Super+P` 会卡；用 `glib.timeout_add` 分块规避（见 12.2） |
 | 保留理由 | 应用启动器是唯一带 `.desktop` 解析的启动器 |
 | 替代 | `modkey+r` promptbox 已能覆盖命令行启动部分 |
 
 **保留 menubar 的成本就落在写 shim（8-15 天）+ 照抄 libgio 静态链接配方（6-12 天）。上一版把它写成"硬门槛"，实测证明不是：docker-x11base 已经用同一条链静态编出 37.1M 的 pcmanfm，menubar 零 D-Bus 所以更不会踩到 `gdbus` 那条分叉。**
+
+**但同步化确实引入了一个新代价：首次打开菜单时会卡 UI**。当前异步实现靠 `coroutine.yield` 让 GLib 主循环在每 100 文件之间继续处理输入（`docs/90-FAQ.md:24` 明确输入与绘制都在主线程）。规避方案是用 `glib.timeout_add` 分目录驱动，**而这个函数本就是 R6 的 GLib 绑定面（8.1）**，所以几乎零额外成本。净效果：代价不是新的人天，是新的一笔需要写对的代码。
