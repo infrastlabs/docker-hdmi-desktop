@@ -409,17 +409,17 @@ lgi 是 AwesomeWM 的**核心 Lua 绑定层**，基于 gobject-introspection（G
 
 ### 3、替代方案对比矩阵
 
-| 项目 | GitHub 仓库（2026-09-20 实测） | ⭐ / Fork | 绑定方式 | 维护状态 | 静态编译支持 | 关键备注 |
-|------|------------------------------|-----------|---------|---------|-------------|---------|
-| **LGI** | [lgi-devs/lgi](https://github.com/lgi-devs/lgi) | **492** / 81 | 动态 GI | ⚠️ 9 年无 release（2017-10 后） | 官方开发包 `lua-lgi-dev` 声明支持静态链接二进制 | awesome 官方绑定；最后 push 2026-08-17 |
-| **LuaGObject** | [vtrlx/LuaGObject](https://github.com/vtrlx/LuaGObject) | 32 / 4 | 动态 GI（GIRepository 2.0） | ✅ **最近 push 2026-08-25** | 需手动嵌入：Lua 字节码 + C 侧 `luaL_loadbuffer` | **LGI 直接 fork**（2024-12 创建）；GTK4/libadwaita/Lua 5.4/5.5；GNOME 49+ 刚需 |
-| **lgob** | [nomadalex/lgob](https://github.com/nomadalex/lgob) | 5 / 1 | **静态代码生成**（.gir → C 胶水） | ❌ **archived**，最后 push 2011-06-26（**15 年停更**） | **原生设计**——设计上就是静态绑定 | 唯一原生支持静态的方案，但项目已归档不可用；LGPL-3.0 |
-| **wxLua** | [pkulchenko/wxlua](https://github.com/pkulchenko/wxlua) | **357** / 60 | 非 GTK（C++ 手写 wxWidgets 绑定） | ✅ **最近 push 2026-09-19（活跃）** | 理论可自编静态版 | 生态中最活跃者；通过 wxWidgets 跑，非直接 GTK 绑定 |
-| **LUI3** | [d-power/LGUI3](https://github.com/d-power/LGUI3) | 3 / 1 | 未声明 | ⚠️ 最后 push 2025-12-02 | 未声明 | 个人项目，非官方替代品 |
-| **lgui** | [passpeon/lgui](https://github.com/passpeon/lgui) | 0 / 0 | 未声明 | ❌ 最后 push 2018-06-04（8 年） | 未声明 | 轻量 GTK2 绑定；仓库近空 |
-| **keybinder** | [aur-archive/lua-keybinder](https://github.com/aur-archive/lua-keybinder) | 0 / 0 | 静态实验 | ❌ 最后 push 2015-08-16（11 年） | 需手动指定 Lua 头文件路径 | 特殊用途（按键绑定）；AUR 归档镜像 |
-| **LuiGI** | — | — | — | ❌ **GitHub 上找不到对应仓库** | — | 仅存于早期源码托管（SourceForge 等）；作者已建议改用 LGI |
-| **Lua-Gnome / Lua-GTK** | — | — | — | ❌ **GitHub 上找不到对应仓库** | — | 仅存于历史归档；面向 GTK+ 2.x |
+| 项目（GitHub 仓库，2026-09-20 实测） | ⭐ / Fork | 语言 | 绑定方式 | 维护状态 | 静态编译支持 | 关键备注 |
+|----------------------------------------|-----------|------|---------|---------|-------------|---------|
+| **LGI** — [lgi-devs/lgi](https://github.com/lgi-devs/lgi) | **492** / 81 | Lua | 动态 GI | ⚠️ 9 年无 release（2017-10 后） | 官方开发包 `lua-lgi-dev` 声明支持静态链接二进制 | awesome 官方绑定；最后 push 2026-08-17 |
+| **LuaGObject** — [vtrlx/LuaGObject](https://github.com/vtrlx/LuaGObject) | 32 / 4 | Lua | 动态 GI（GIRepository 2.0） | ✅ **最近 push 2026-08-25** | 需手动嵌入：Lua 字节码 + C 侧 `luaL_loadbuffer` | **LGI 直接 fork**（2024-12 创建）；GTK4/libadwaita/Lua 5.4/5.5；GNOME 49+ 刚需 |
+| **lgob** — [nomadalex/lgob](https://github.com/nomadalex/lgob) | 5 / 1 | Lua（生成 C 胶水） | **静态代码生成**（.gir → C 胶水） | ❌ **archived**，最后 push 2011-06-26（**15 年停更**） | **原生设计**——设计上就是静态绑定 | 唯一原生支持静态的方案，但项目已归档不可用；LGPL-3.0 |
+| **wxLua** — [pkulchenko/wxlua](https://github.com/pkulchenko/wxlua) | **357** / 60 | C++ + Lua | 非 GTK（C++ 手写 wxWidgets 绑定） | ✅ **最近 push 2026-09-19（活跃）** | 理论可自编静态版 | 生态中最活跃者；通过 wxWidgets 跑，非直接 GTK 绑定 |
+| **LUI3** — [d-power/LGUI3](https://github.com/d-power/LGUI3) | 3 / 1 | Lua | 未声明 | ⚠️ 最后 push 2025-12-02 | 未声明 | 个人项目，非官方替代品 |
+| **lgui** — [passpeon/lgui](https://github.com/passpeon/lgui) | 0 / 0 | Lua | 未声明 | ❌ 最后 push 2018-06-04（8 年） | 未声明 | 轻量 GTK2 绑定；仓库近空 |
+| **keybinder** — [aur-archive/lua-keybinder](https://github.com/aur-archive/lua-keybinder) | 0 / 0 | Shell（AUR 包） | 静态实验 | ❌ 最后 push 2015-08-16（11 年） | 需手动指定 Lua 头文件路径 | 特殊用途（按键绑定）；AUR 归档镜像 |
+| **LuiGI** — — | — | — | — | ❌ **GitHub 上找不到对应仓库** | — | 仅存于早期源码托管（SourceForge 等）；作者已建议改用 LGI |
+| **Lua-Gnome / Lua-GTK** — — | — | — | — | ❌ **GitHub 上找不到对应仓库** | — | 仅存于历史归档；面向 GTK+ 2.x |
 
 **读表结论**：
 
