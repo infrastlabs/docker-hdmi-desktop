@@ -391,7 +391,7 @@ R4  换 LuaGnome        :120-240   不可行
 
 ### 8、待办：把推测值变成实测值
 
-本文档的 4 个最大未知按"收益 / 成本"排序，前 4 项合计约 **3-4 天**，能把最大的 3 个不确定性从推测变成实测。
+本文档的 6 项未知按"收益 / 成本"排序，合计约 **4-5 天**。前 5 项（8.1-8.5）是把推测变成实测，8.6 是 二·6 分析出的缺口——性质不同：不是"猜数字"，而是"确认要不要多做一个模块"。
 
 #### 8.1 Pango 绑定骨架空跑（1-2 天，收益最高）
 
@@ -432,14 +432,74 @@ CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），�
 
 `cairo.Context` 已数出 28 个方法、约 450 处调用（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 51、`cr:rectangle` × 38、`cr:paint` × 34、`cr:stroke` × 32……），但 `shape.lua`（28 处）和 `wibox/hierarchy.lua`（12 处）的具体语义还没看过。排在 Pango 后面，因为 cairo 有活的官方库 oocairo 可参照（3.1）。
 
-#### 8.6 做完之后的判断标准
+#### 8.6 librsvg：SVG 图标是四模块之外的缺失（0.5 天，先决策后动手）
+
+二·6.5 发现四模块范围（cairo + Pango + GLib + Gio）漏了 `lgi.Rsvg`。实测调用面比预想小得多，消费者只有 **2 个文件**：
+
+| 调用 | 位置 | librsvg 2.0 C API |
+|------|------|-------------------|
+| `Rsvg.Handle.new_from_data(data)` | `imagebox.lua:87` | `rsvg_handle_new_from_data` |
+| `Rsvg.Handle.new_from_file(path)` | `imagebox.lua:89` | `rsvg_handle_new_from_file` |
+| `handle:get_dimensions()` | `imagebox.lua:113`、`border.lua:122` | `rsvg_handle_get_dimensions` |
+| `handle:set_stylesheet(s)` | `imagebox.lua:188,202`、`border.lua:118` | `rsvg_handle_set_stylesheet` |
+| `handle:set_dpi(d)` | `imagebox.lua:197`、`border.lua:121` | `rsvg_handle_set_dpi` |
+| `handle:set_dpi_x_y(x, y)` | `imagebox.lua:195` | `rsvg_handle_set_dpi_x_y` |
+| `handle:render_cairo(cr)` | `imagebox.lua:310`、`border.lua:128` | `rsvg_handle_render_cairo` |
+| `Rsvg.Handle:is_type_of(x)` | `imagebox.lua:408,423` | `g_object_is_type` |
+
+**7 个方法 + 1 个类型检查**，shim 约 100-150 行 C。`imagebox.lua:54` 的 `pcall` 失败只 `print_warning` 降级，不做也不会崩，只是 SVG 不渲染。
+
+**代价的主体不是绑定代码，是静态链接链**：librsvg 依赖 **libxml2**，这是四模块之外的新增静态依赖。
+
+**先花 0.5 天决策，不要直接写**：
+
+1. 查容器默认图标主题是不是 SVG-only（hicolor 通常有 xpm/png 兜底）
+2. 是则写 shim；否则明确接受"部分 SVG 图标不显示"，容器里换纯 PNG 图标主题
+
+影响面只限 `beautiful.icon` / wibox `imagebox` 的 SVG 图标；`rofi -show-icons` 的图标由 rofi 进程内 GTK 绘制，不走这条路（二·6.3）。
+
+#### 8.7 LGI 特有 API 形状与模块外依赖清点（0.25 天，产出清单）
+
+二·6.5 指出的问题比"缺几个方法"更细：LGI 绑定对象有一批 **C API 里没有对应物的 Lua 侧约定**，shim 必须伪造，否则库级代码直接挂。grep 实测调用面：
+
+| LGI 特有形态 | 调用次数 | 涉及文件 |
+|------|------|------|
+| `._native` | 10 | 5（`wibox/init.lua`×3、`gears/surface.lua`×2、`awful/_compat.lua`×2、`awful/client/shape.lua`×2、`awful/mouse/snap.lua`×1） |
+| `:finish()` | 18 | 13（`gears/wallpaper.lua`×5 最集中，其余分散在 naughty/wibox/awful） |
+| `:is_type_of()` | 9 | 5（`gears/color.lua`×2、`gears/surface.lua`×2、`gears/wallpaper.lua`×2、`imagebox.lua`×3） |
+
+**这三者不是可选兼容项**：`surface.lua:49,62` 的 `is_type_of` 是 `gears.surface` 的类型分派入口，写错会让所有图标加载走错分支；`._native` 是把 C 指针传给其他绑定的唯一通道（`b12:345` 的 `c.shape_input = img._native`）。
+
+**清点范围要覆盖全部 10 个 `lgi.*` 模块表，不是只有四个模块**：
+
+```
+lgi.Pango ×14    lgi.GLib ×4     lgi.Gio ×4     lgi.PangoCairo ×3
+lgi.cairo ×3     lgi.version ×1  lgi.Rsvg ×1    lgi.require ×1
+lgi.GObject ×1   lgi.GioUnix ×1
+```
+
+后四个中，第 2 节的 `lgishim.lua` 只覆盖了 `version` / `require` / `GObject`——**`GioUnix` 是唯一漏项**：
+
+```
+lib/awful/spawn.lua:228  local GioUnix = lgi.GioUnix
+lib/awful/spawn.lua:422      spawn.read_lines(GioUnix.InputStream.new(stdout, true), ...)
+lib/awful/spawn.lua:426      spawn.read_lines(GioUnix.InputStream.new(stderr, true), ...)
+```
+
+`GioUnix.InputStream.new(fd, close_fd)` 是 `awful.spawn` 捕获子进程 stdout/stderr 的路径——b12 里所有"跑命令读输出"的 widget 都走它。绑定成本很小（`g_io_channel_new_from_fd` 包一层 `GInputStream`），但它**不在四模块范围，也不在 二·5.1 的 Gio 调用面里**，需要单列。
+
+**产出物**：一份"shim 必须伪造的清单"——API 形状 3 类 + 模块表 10 个 + 模块外绑定 1 个。这份清单是 8.1（Pango 骨架）动手前的前置输入，因为它决定了骨架的元表怎么写。
+
+#### 8.8 做完之后的判断标准
 
 | 结果 | 判断 |
 |------|------|
 | 8.1 骨架 < 300 行 | Pango 落在 15-20，合计 **38-52** 可信 |
 | 8.1 骨架 > 600 行 | Pango 落到 30+，R6 合计可能破 70，需重评 R7（dwm） |
 | 8.2 spec 改造前就不全绿 | 5、7.1 的"测试回归 6-8"低估，需重估 |
-| 8.4 awesome 链不过 | 5.3 的"已消除"要撤回，回到"硬门槛" |
+| 8.4 awesome 链不过 | 二·5.3 的"已消除"要撤回，回到"硬门槛" |
+| 8.6 默认图标主题是 SVG-only | 需写 librsvg shim（+0.5-1 人天）并引入 libxml2 静态链 |
+| 8.7 确认 `GioUnix` 需绑定 | Gio 项 8-15 上调至 9-16，需同步改 二·5.4 / 7.1 的合计 |
 
 ---
 
@@ -1201,12 +1261,12 @@ img.finish()
 
 **一个隐含冲突**：**rofi 运行时依赖 GTK3**。所以"awesome 砍掉 GTK"不等于"容器无 GTK"——只要还在用 rofi，容器就得保留 GTK 动态库。这与 R6 的"容器瘦化"叙述需要对齐，否则会误判瘦身空间。
 
-#### 6.5 两个应补进待办的缺口
+#### 6.5 两个应补进待办的缺口（已进 一·8）
 
-本节发现两处 一·8 待办尚未覆盖的项：
+本节发现两处一·8 待办尚未覆盖的项，已作为 **8.6**（librsvg）和 **8.7**（LGI API 形状 + `GioUnix`）补入，下面保留原始发现供溯源：
 
-1. **Rsvg 缺口**——四模块范围（cairo + Pango + GLib + Gio）未列 librsvg，但 SVG 图标主题会因此失效。收敛点单一（唯一消费者 `lib/wibox/widget/imagebox.lua:51-56`），失败时只 `gdebug.print_warning` 降级。处置选项：也写一个 Rsvg shim（librsvg 的 `rsvg_handle_render_document` 单函数面），或明确接受"SVG 图标不可用"并在容器里改用 PNG 图标主题。
-2. **LGI 特有的 API 形状**——`._native`（`b12:345`、`surface.lua:67`）、`:finish()`（`b12:347`）、`:is_type_of()`（`surface.lua:49,62`、`imagebox.lua:408`）。R6 shim 若按纯 C API 写而不伪造这些访问器/元方法，**库级和用户级代码都会挂**。这类"API 形状兼容"目前本文档未单列，属于 shim 设计约束，应补进 一·8。
+1. **Rsvg 缺口**——四模块范围（cairo + Pango + GLib + Gio）未列 librsvg，SVG 图标主题会因此失效。收敛点单一（唯一加载点 `lib/wibox/widget/imagebox.lua:51-56`），失败时只 `gdebug.print_warning` 降级。**8.6 已实测出完整调用面：7 个方法 + 1 个类型检查，两个消费者文件**——本节初稿写的"单函数面"是不准的。
+2. **LGI 特有的 API 形状**——`._native`、`:finish()`、`:is_type_of()`。R6 shim 若按纯 C API 写而不伪造这些访问器/元方法，**库级和用户级代码都会挂**。**8.7 已实测出三者的调用次数与文件分布**，并顺带发现第三个漏项：`lgi.GioUnix` 支撑 `awful.spawn` 的子进程输出捕获，既不在四模块范围，也不在第 2 节 `lgishim.lua` 的模块表里。
 
 #### 6.6 一个需要校准的数字（不抬高成本）
 
