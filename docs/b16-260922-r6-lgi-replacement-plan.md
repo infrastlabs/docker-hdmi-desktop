@@ -27,7 +27,7 @@ awesome 静态化的障碍是 `lgi → gobject-introspection → dlopen` 这条�
 | GI 模块 | 引用 | 用途 | 现状方案 |
 |---------|------|------|---------|
 | `cairo` | 8+ | 全部绘制 | **oocairo** 官方活跃（25★，2025-08） |
-| `Pango` / `PangoCairo` | 4 | 文本渲染 | oopango 停滞 12 年（4★，2014-10） |
+| `Pango` / `PangoCairo` | 4 | 文本渲染 | oopango 停滞 **14 年**（4★，最后 commit 2012-03，见 10.5） |
 | `GLib` | 2 | `gears.timer` 主循环 | **无现成方案**，唯一真空缺 |
 | `Gio` / `GioUnix` | 4 | 文件系统 / dbus | **无现成方案** |
 | `GdkPixbuf` | 1 | 图片加载 | 单一调用点 |
@@ -107,7 +107,7 @@ function Surface._wrap(s) return setmetatable({ _s = s }, Surface) end
 
 #### 3.2 Pango：10-20 人天，但有更省的绕法
 
-oopango（[awesomeWM/oopango](https://github.com/awesomeWM/oopango)）停滞 12 年（2014-10 最后 push）。现代 pango 1.50+ 的 `PangoFontDescription` API 有变更，整体移植是体力活且要背 12 年的债。
+oopango（[awesomeWM/oopango](https://github.com/awesomeWM/oopango)）停滞 **14 年**——最后 commit 是 `2012-03-29`（"Make this work with lua 5.2"），最后 tag `v1.1`（2011-05-18）。仓库 `created_at`/`pushed_at` 都显示 2014-10-21，那是 GitHub mirror 的导入日期，不是活跃度。现代 pango 1.50+ 的 `PangoFontDescription` API 有变更，整体移植是体力活且要背 14 年的债（详见 10.5）。
 
 **更省的做法：不要移植 oopango，手写 60 行最小绑定，只实现 awesome 真正调用的函数。** awesome 对 Pango 的需求收敛在"字体描述符解析 + 文本测量"，实际用到 5-8 个 C 函数：
 
@@ -120,7 +120,7 @@ pango_layout_get_pixel_size
 pango_cairo_create_layout / pango_cairo_set_font_and_layout / pango_cairo_show_layout
 ```
 
-调用点仅 5 处：`lib/beautiful/init.lua`（4 处，字体解析）+ `lib/gears/color.lua`（1 处）。绕开 oopango 的 12 年债，且不需要同步其 API 演进。
+调用点仅 5 处：`lib/beautiful/init.lua`（4 处，字体解析）+ `lib/gears/color.lua`（1 处）。绕开 oopango 的 14 年债，且不需要同步其 API 演进。
 
 #### 3.3 GLib 主循环：3-6 人天（原估 15-30，校正见 8.1）
 
@@ -576,3 +576,97 @@ beautiful.bg_normal = vars.bg_color                 -- 崩：attempt to index ni
 | menubar | ❌ 连带失效（本来就计划砍） |
 
 对这个项目：容器里大概率没有桌面环境也没有 GTK 主题，这条路径本来就不会走。**砍掉是纯收益，0 人天成立。**
+
+---
+
+### 10、四模块替换源与 LGI 引入历史
+
+> **提问原文**：
+> 最小替换集：cairo + Pango + GLib + Gio 四模块，四个具体是怎么替换的？用的awesomewm官方的另外两个仓库吗？官方什么时候 哪个版本开始用lgi的，官方的那两个仓库对应最新版本还靠谱可用吗？
+>
+> 本节回答四问，并纠正两个之前的记录偏差：**LGI 引入点是 v3.5 不是 v4.0**；**oopango 停滞 14 年不是 12 年**。
+
+#### 10.1 四模块替换源对照
+
+| 模块 | 替换源 | API 形态差异 |
+|------|--------|-------------|
+| **cairo** | `awesomeWM/oocairo` | LGI 是 OO 调用（`cr:line_to(x,y)`），oocairo 是函数式（`cairo.line_to(cr,x,y)`）→ shim 要做形态适配 |
+| **Pango** | `awesomeWM/oopango` | 同上，OO ↔ 函数式 |
+| **GLib** | **无现成方案，手写** | 无等价库（见 8.1） |
+| **Gio** | **全砍**，改 `io.open` + C 侧 `dbus.c` | 无等价替换（见 8.2） |
+
+GLib 全仓库生产代码仅 3 行调用：`glib.timeout_add` / `glib.SOURCE_CONTINUE` / `glib.source_remove`，即 2 函数 + 2 常量。
+
+Gio 4 处调用：`gears/filesystem.lua`、`naughty/dbus.lua`、`menubar/utils.lua`、`menubar/icon_theme.lua`。两个坑：`Gio.IOErrorEnum` 的 typed error 在 `io` 无等价物；`enumerate_children` 是惰性游标，`io` 无等价物需一次性缓存。
+
+#### 10.2 官方两个仓库：是，但 awesome 本体已零引用
+
+`awesomeWM` 组织名下：
+
+| 仓库 | 最新版本 | 最后 commit | forks |
+|------|---------|------------|-------|
+| `awesomeWM/oocairo` | **v1.5** | 2025-08-10 | 10 |
+| `awesomeWM/oopango` | **v1.1** | **2012-03-29** | 2 |
+
+**关键澄清：awesome 本体已零引用这两个库**。grep 全仓库 `oocairo\|oopango\|oox11` **零命中**。它们是 LGI 引入后的遗留库，组织仍维护，但不是 awesome 的当前实现。
+
+#### 10.3 LGI 引入点是 v3.5，不是 v4.0
+
+证据链：
+
+| 版本 | cairo 来源 | 证据 |
+|------|-----------|------|
+| **v2.3.6** | 直接链接 pangocairo | `configure.ac`: `PKG_CHECK_MODULES([pangocairo], [pangocairo])` |
+| **v3.4.15** | **零 cairo 引用** | `lib/naughty.lua.in`（22371 字节）grep `cairo` 命中 **0 次**；用 `image = image`（C 侧 image 对象） |
+| **v3.5.9** | **LGI** | `CMakeLists.txt`: `# check for lgi and the needed gobject introspection files` + `lgi-check` target；`naughty.lua.in`: `local cairo = require("lgi").cairo` |
+| **v4.0**（2016-12-25） | LGI 全面铺开 | `lib/beautiful/init.lua`: `require("lgi")` |
+
+版本线：**v1.0 → v2.3.6**（手写绑定 + 直接链接 pangocairo）→ **v3.5**（LGI 引入）→ **v4.0**（2016-12-25，LGI 全面铺开）。
+
+awesome release 日期（GitHub API 实测）：v4.0 2016-12-25、v4.1 2017-03-18、v4.2 2017-07-15、v4.3 2019-01-28。
+
+**R6 本质上是回到 v3.4 之前的架构**，但比那时更好——GLib 主循环早就在 C 侧了。
+
+#### 10.4 oocairo v1.5：相对靠谱
+
+- 2025-08-10 还有 bugfix（tflori 的 PR #14，"return nothing in a void function"）
+- 依赖声明干净：`PKG_CHECK_MODULES([DEPS], [$LUA_NAME cairo])`
+- ⚠️ 2019-12 → 2025-08 之间有 **6 年空档**，靠零星 PR 维持
+- ⚠️ **0 个 GitHub release，无 LuaRocks 包**，需自己编译
+- ⚠️ 10 forks，社区小
+
+结论：**可用，但需要自己维护编译链**。
+
+#### 10.5 oopango v1.1：R6 的真正风险点
+
+- 最后 commit **2012-03-29**（"Make this work with lua 5.2"），**停滞 14 年**
+- 最后 tag **v1.1**（2011-05-18），2 forks，无人接手
+- ⚠️ **现代 pango（1.50+）的 `PangoFontDescription` API 有变更**，v1.1 无法直接编译工作
+
+**之前记录"停滞 12 年"是错的**：仓库 `created_at`/`pushed_at` 都是 2014-10-21，那是 GitHub mirror 的导入日期，被误当成活跃度。实际最后 commit 早 2.5 年。
+
+#### 10.6 Pango 层只剩两条路
+
+候选清单里没有活着的官方方案，只剩：
+
+| 方案 | 代价 | 结论 |
+|------|------|------|
+| 自己移植 oopango v1.1 到现代 pango | FontDescription API 逐处改 | 体力活，14 年债自己背 |
+| **降级到 cairo toy text API** | 放弃文字 shaping | ❌ 实质降级 |
+
+toy text API（`select_font_face` / `show_text`）覆盖不了 `PangoFontDescription` 解析 `"sans 10"` 这类字符串，awesome 的 `wibox` 文字渲染和字体解析会出问题。中文/复杂文字排版更是直接失效。
+
+**对比**：
+- ✅ cairo 层：有活的官方库（2025 还在修）
+- ❌ Pango 层：**没有可用方案**，只有死库或降级
+
+#### 10.7 小结
+
+| 问 | 答 |
+|----|-----|
+| 四模块怎么换 | cairo→oocairo、Pango→oopango、GLib→手写 2 函数、Gio→全砍 |
+| 是官方两个仓库吗 | 是（oocairo / oopango），但 awesome 本体已零引用 |
+| LGI 从哪个版本开始 | **v3.5**（不是 v4.0），v4.0 是 2016-12-25 全面铺开 |
+| 两个仓库靠谱吗 | oocairo v1.5 相对靠谱；**oopango v1.1 不靠谱（停滞 14 年）** |
+
+**对 R6 成本的影响**：3.2 节估的 Pango "10-20 人天"是**下限**。因为 oopango v1.1 无法直接编译到现代 pango，需要移植，实际可能是 **15-30 人天**——甚至可能超过 GLib 的 3-6 人天成为新的成本主体。
