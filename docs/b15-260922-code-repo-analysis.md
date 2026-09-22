@@ -840,4 +840,84 @@ R4  换 LuaGnome        :120-240  不可行（GTK3→GTK2）
 
 **一句话**：LGI 静态替代方案在 2026 年确实不存在——GLib/Gio 的 Lua 绑定从来只有 LGI 一家，且无人做静态版。但 LGI 的真实足迹小得出乎意料（60 行），R6 从"不可行"降为"可做但不值"。唯一整条路可行的是 somewm，代价是把桌面后端从 X11 换成 Wayland。
 
+### 7、somewm 改造成 X11/Xorg 后端：是重写，不是改造
+
+> 第 6 节判定 somewm 是"唯一整条路可行的绕开方案"，**前提是接受 X11 → Wayland 后端切换**。若不换后端、要让 somewm 跑在 Xorg 里，结论反转：**这是重写不是改造，且终点与 R6 重合，成本反而更高。**
+
+#### 7.1 硬障碍：wlroots 根本没有 X11 backend
+
+wlroots 的 backend 只有四个：`wayland`（nested）、`drm`（KMS/libinput）、`headless`、`pipewire`。**没有 X11 backend，社区也无人写过。**
+
+这不是"补一个后端"的量级。wlroots 整个 backend 抽象层（surface 生命周期、输入设备热插拔、output 管理）都是围绕 Wayland compositor 语义建的——X11 里 Xorg 是 display server、WM 是普通客户端，没有 surface 概念，语义不等价。
+
+#### 7.2 somewm 的 X11 代码方向相反，不可复用
+
+仓库里的 `x11_compat.h`（13KB）+ `xwayland.c`（9.6KB）容易误读成"已有 X11 支持"：
+
+```
+实际用途：XWayland 兼容层 —— 让 X11 客户端经 Wayland 显示
+数据流向：X11 client → XWayland → somewm
+需要的是：somewm → Xorg            ← 方向相反
+```
+
+这部分代码是**服务于 Wayland 生态的兼容层**，换后端时不会留下任何价值。
+
+#### 7.3 替换量：≈300KB C 内核
+
+改 X11 后端需要替换的 somewm 文件：
+
+| somewm 文件 | 规模 | 绑定的 wlroots 抽象 |
+|------------|------|-------------------|
+| `input.c` | 110KB | libinput + wlroots input manager |
+| `window.c` / `client.h` | 70KB / 12KB | `wlr_surface` / `wlr_xdg_surface` |
+| `somewm.c` | 69KB | wlroots 启动与事件循环 |
+| `root.c` | 40KB | root surface / 屏幕区域 |
+| `monitor.c` | 28KB | wlroots output 抽象 |
+| `shadow.c` / `shadow.h` | 25KB / 8KB | Wayland shadow compositor |
+| `protocols.c` + `protocols/` | 25KB+ | Wayland protocol handler |
+| **合计** | **≈300KB** | — |
+
+全部要换成 Xlib 等价物。**而 Xlib 等价物已经存在**——就是 awesome 自己的 `src/*.c`：`banning` / `focus` / `mousegrabber` / `keygrabber` / `root` / `ewmh` / `spawn`。
+
+#### 7.4 关键：这条路绕回了 R6
+
+somewm 存在的意义是"复用 awesome 的 Lua API"的 **Wayland 移植**。所以想"要 somewm 的架构 + 要 X11"时：
+
+```
+"somewm 改 X11"  =  手写 C 绑定风格  +  Xlib 内核
+awesome 本体     =  已有 Xlib 内核    +  LGI 绑定
+                     ────────────────────────────
+awesome R6       =  已有 Xlib 内核    +  手写 C 绑定   ← 同一终点
+```
+
+**awesome 的 X11 C 内核本来就静态友好**（纯 Xlib，无 dlopen，无 GI 反射）。awesome 静态化的障碍从来不在 X11 后端，而在 Lua 层需要的 GLib/Gio（见 3.2 节）。所以：
+
+| 路径 | 内核 | 绑定层 | 人天 |
+|------|------|--------|------|
+| somewm 改 X11 | 300KB 内核**重写**（用 awesome 的代码） | 保留 somewm 绑定 | 90-160 |
+| **awesome R6** | **现成，不动** | 60 行绑定替换 | **45-95** |
+
+前者多付一倍成本，只为绕开一个**不存在的障碍**（X11 后端不是 awesome 的障碍）。
+
+#### 7.5 Xorg 容器里跑 Wayland 合成器的两条路
+
+| 方案 | 判定 |
+|------|------|
+| wlroots `wayland` backend（nested） | ❌ 需要外层一个 Wayland 合成器，Xorg 里不存在 |
+| wlroots `headless` backend + XWayland 回连 | ❌ 链路 `HDMI → Xorg → Wayland(headless) → XWayland → X11 client`，比现状多套两层；Xorg 已直接吃 DRM 输出 HDMI，再套一层输入延迟与渲染开销双输 |
+| wlroots `drm` backend 直接吃 `/dev/dri` | ✅ 干净，但这正是"换成 Wayland"（第 6 节的前提），不是"适配 X11" |
+
+#### 7.6 判定
+
+| 方案 | 人天 | 判定 |
+|------|------|------|
+| somewm 改 X11 后端 | 90-160 | ❌ 重写，终点与 R6 相同，成本翻倍 |
+| somewm headless 套在 Xorg 上 | 40-80 | ❌ 双套娃，性能倒退 |
+| **awesome R6（保留现成 Xlib 内核）** | **45-95** | ⭐ 同一目标，成本减半 |
+| somewm 原生 Wayland + drm 后端 | 40-80 | ⭐ 若接受换后端，这是 somewm 的正确打开方式 |
+
+**somewm 的价值在于"替代 LGI 的手写绑定风格"，不在 Wayland。** 但那个价值 awesome 自己就能拿到——直接做 R6，用 awesome 现成的 X11 内核 + 手写 C 绑定。绕道 Wayland 再绕回来没有意义。
+
+**给 R9 加一个适用条件**：R9（somewm，40-80 人天）**只在愿意整体迁移到 Wayland 后端时成立**（wlroots `drm` 直接吃 `/dev/dri` 输出 HDMI，架构上比 Xorg 更干净）。若坚持 X11 后端，R9 不成立，路径回到 R6。
+
 
