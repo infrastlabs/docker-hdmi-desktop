@@ -298,12 +298,12 @@ oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后�
 |------|---------|---------|---------|
 | Cairo 层 | 0-3 | 0-3 | — |
 | Pango 层 | 10-20 | **2-4** | 不移植 oopango，手写 60 行最小绑定 |
-| GLib 主循环 | 15-30 | **3-6** / **4-8** | C 侧已静态；Lua 侧 2 函数；保留 menubar 需补 4 个 GLib 函数（见 12） |
+| GLib 主循环 | 15-30 | **3-6** / **4-8** | C 侧已静态；Lua 侧 2 函数；保留 menubar 需补 6 个 GLib 函数（见 12.1） |
 | Gio | 10-20 | **2-4** / **8-15** | 砍 menubar 则 4 处全砍；保留则需同步 shim + fork（见 12）；原写"C 侧 dbus.c 兜底"是错的（见 8.2） |
 | GTK3 | 0 | 0 | pcall 保护 |
 | GdkPixbuf | 0-2 | 0-2 | — |
 | 测试回归 | 10-20 | 6-8 | 只跑纯 Lua 子集 |
-| 静态链接 | 未单列 | 10-20 / **15-25** | 砍 menubar 则链接链简化；保留则需静态化 libgio 依赖链（见 12） |
+| 静态链接 | 未单列 | 10-20 / **6-12** | 砍 menubar 则链接链简化；保留则需静态化 libgio 依赖链——**已有 `v-pcmanfm` 落地先例，见 12.3** |
 | **合计** | **45-95** | **25-40** / **34-52** | 砍 menubar / 保留 menubar（见 12）；绕开 oopango + GLib 实测下调 |
 
 #### 7.2 R6 在路线排序中的位置
@@ -785,23 +785,40 @@ menubar 真正卡在 Gio 上：`menu_gen.generate` 是异步的（NEWS:1281 "now
 
 #### 12.1 menubar 的 Gio 真实调用面
 
-`lib/menubar/utils.lua` 只有 4 行直接调 gio：
+对 `lib/menubar/` 全目录（5 个 `.lua`）做词边界 grep，结果如下。
+
+**gio 直接调用面（全部在 `utils.lua`）**：
 
 | 行号 | 调用 | 类型 |
 |------|------|------|
-| 370 | `gio.FILE_ATTRIBUTE_STANDARD_NAME` / `FILE_ATTRIBUTE_STANDARD_TYPE` | 常量 |
-| 370 | `gio.FileQueryInfoFlags.NONE` | 常量 |
+| 370 | `gio.FILE_ATTRIBUTE_STANDARD_NAME` / `FILE_ATTRIBUTE_STANDARD_TYPE` | 字符串常量 |
+| 371 | `gio.FileQueryInfoFlags.NONE` | 整数常量 |
 | 371 | `file:async_enumerate_children(query, flags)` | 异步方法 |
+| 378 | `enum:async_next_files(n)` | 异步方法 |
+| 384 | `info:get_file_type()` | 同步方法 |
+| 385 | `enum:get_child(info)` | 同步方法 |
+| 365 | `file:get_path()` / `file:get_uri()` | 同步方法 |
+| 404 | `enum:async_close()` | 异步方法 |
 | 407 | `gio.Async.start(do_protected_call)(...)` | 异步启动 |
 | 409 | `gio.File.new_for_path(dir_path)` | 构造 |
 
-递归体内部：`enum:async_next_files(n)` / `info:get_file_type()` / `enum:get_child(info)` / `file:get_path()` / `file:get_uri()` / `enum:async_close()`
+**GLib 调用面（6 个函数，分布在 2 个文件）**：
 
-**整个 menubar 的 Gio 需求收敛在 `utils.parse_dir` 一个函数里。**
+| 文件 | 函数 |
+|------|------|
+| `icon_theme.lua` | `build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` |
+| `utils.lua` | 上述 4 个 + `KeyFile()` / `KeyFileFlags.NONE` |
 
-GLib 需求（`icon_theme.lua`）：`build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` —— 4 个函数。
+`KeyFile` 在 `utils.lua:269-270`，用来解析 `.desktop` 文件的 `[Desktop Entry]` 段。**它是 `libglib-2.0` 的一部分（`glib/gkeyfile.h`），不是 gio，也不是 D-Bus**——纯 INI 解析器，静态化无额外负担。（原稿写"4 个函数"漏了这两个，实为 6 个。）
 
-间接依赖：`menubar/init.lua` 用 `gears.filesystem.get_cache_dir()` × 3 处。
+间接依赖：`menubar/init.lua` 用 `gears.filesystem.get_cache_dir()` × 3 处（174、190、528 行）。
+
+**两个收敛结论**：
+
+1. **Gio 需求收敛在 `utils.parse_dir` 一个函数里**，其余 4 个 menubar 文件零 gio 调用。
+2. **全模块零 D-Bus**：对 `lib/menubar/` grep `gdbus|dbusconn|GDBus|application_id|GApplication|GSettings` → **零命中**。这条很关键——它意味着静态链接 `libgio-2.0.a` 时**不会拉进 `gdbus*.o`**，见 12.3。
+
+补充：`gio.*` / `glib.*` 这两个全局表**不是 awesome C 代码注册的**（全仓 grep 无 `"gio"`/`"glib"` 注册点），而是 LGI 的 GLib GIR 绑定注入的——`build-utils/lgi-check.c:39` 有 `assert(lgi.cairo, lgi.Pango, lgi.PangoCairo, lgi.GLib, lgi.Gio, lgi.GdkPixbuf)`。所以 R6 删 LGI 后这两个表同时消失，shim 必须把两边都补上。
 
 #### 12.2 关键发现：async 包装可以完全去掉
 
@@ -831,12 +848,66 @@ end)
 | 组件 | 内容 | 工作量 |
 |------|------|--------|
 | `lgishim_gio.c` | `File.new_for_path` / `enumerate_children` / `get_path` / `get_uri` / `FileInfo.get_file_type` / `FileEnumerator.{next_files,get_child,close}` + 3 常量 | 约 200-300 行 C |
-| `lgishim_glib.c` 补充 | `build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` | 约 50 行 |
+| `lgishim_glib.c` 补充 | `build_filenamev` / `get_home_dir` / `get_user_data_dir` / `get_system_data_dirs` / `KeyFile` / `KeyFileFlags`（6 个，见 12.1） | 约 70 行 |
 | fork menubar | `utils.parse_dir` 去 async 包装 + 换同步 API | 约 50 行 Lua |
 
 **人天：8-15**（原 Gio "2-4"是全砍方案）。
 
-⚠️ **这个 shim 不是 GI 反射**，是手写 C 绑定，可以完全静态链接。但 libgio 需要链接，而 3.4 节已指出砍 Gio 是为了省 `gio-unix` / `libmount` / `libselinux` / `libsystemd` / `libffi` 那条链——**保留 menubar 就要把那条链静态化，这是额外的静态链接风险**。
+⚠️ **这个 shim 不是 GI 反射**，是手写 C 绑定，可以完全静态链接。它需要链接 `libgio-2.0`，而 3.4 节把"砍 Gio"的理由写成省 `gio-unix` / `libmount` / `libselinux` / `libsystemd` / `libffi` 那条链——所以保留 menubar 就要把这条链静态化。**上一版把这里写成"需要实测验证的硬门槛"，实测结果是否定的，见下。**
+
+##### libgio 依赖链已静态化：docker-x11base 有落地先例
+
+在 `docker-x11base` 仓库里，**`libgio-2.0.a` 的静态链接已经跑通，不是理论可行，是有产物可查**。
+
+`compile/src/v-pcmanfm/build.sh`：
+
+```bash
+OB_LIBS="... -lgio-2.0 -lgobject-2.0 -lglib-2.0 -lpcre -lffi"   # gio 三件套 + pcre + ffi
+ex0="-lgmodule-2.0 ... -lmenu-cache -luuid -lmount -lpcre -lblkid ..."   # gio 的 mount 依赖
+ex1="-lfontconfig -lgio-2.0 -lcairo -lfm -lfm-gtk -lXdamage "
+LIBS="$LIBS0" ./configure --prefix=$TARGETPATH
+make LDFLAGS="-static " LIBS="-lXinerama -lXfixes -lXrandr $LIBS0"
+```
+
+产物（`docs/desk/lxde/pcmanfm.md` 的构建日志）：
+
+```bash
+# 静态编译OK;
+bash-5.1# echo $?
+0
+bash-5.1# ls -lh src/pcmanfm
+-rwxr-xr-x  1 root root 37.1M Nov 29 15:41 src/pcmanfm
+bash-5.1# ldd src/pcmanfm
+/lib/ld-musl-x86_64.so.1: src/pcmanfm: Not a valid dynamic program
+```
+
+`ldd` 报 "Not a valid dynamic program" = **完全静态，零动态依赖**。构建退出码 0。脚本里还有 `xx-verify --static` 做收尾校验。
+
+**拉进 `libgio-2.0.a` 的只有 3 个目标文件**（从 `musl/10.3.1` 未定义符号日志逐条排查出来的）：
+
+| 目标文件 | 带来的额外链接需求 |
+|---------|-------------------|
+| `giomodule.c.o` | — |
+| `gunixmounts.c.o` | `-luuid -lmount -lblkid` |
+| `gzlibdecompressor.c.o` | `-lz` |
+
+**日志里没有出现过 `gdbus*.o`**——因为 pcmanfm 不调 GDBus，链接器只取用到的目标文件。这正是 12.1 第 2 条的意义：menubar 同样零 D-Bus，所以拉进去的还是这 3 个文件，配方可以照抄。
+
+静态库来源是 Alpine 官方 `glib-static 2.70.5-r0`，同时提供 `/usr/lib/libgio-2.0.a`、`libglib-2.0.a`、`libgobject-2.0.a`（`glib-static` 把 gio-unix 并进 `gio-2.0.a`，`gunixmounts.c.o` 就在里面，不需要单独找 `libgio-unix-2.0.a`）。同一仓库里 `v-xlunch/build.sh:52`、`suckless/build.sh:167`、`yad`、`xcompmgr` 都装了 `glib-static`，说明这是仓库的常规做法。
+
+**照抄配方**（menubar 的 Gio shim 需要的最小集）：
+
+```
+-lgio-2.0 -lgobject-2.0 -lglib-2.0   # 三件套
+-lpcre -lz                            # gio 内部正则 + gzip 解压缩
+-lffi                                 # gmodule
+-lintl                                # musl 下 glib 的 locale
+-luuid -lmount -lblkid                # gunixmounts（一定会被拉进）
+```
+
+注意 `-lselinux` / `-lsystemd` 出现在 **pcmanfm 动态构建的 `ldd` 输出里**，但静态构建最终没有它们——那些是 `libfm`/`libmenu-cache` 带进来的，不属于 gio 本身的依赖链。3.4 节把它们列进"要省的链"是宽泛表述，实际 menubar 不碰。
+
+**结论**：libgio 依赖链在 Alpine/musl 上**不是硬门槛，是已验证配方**。剩下的成本是"把 `OB_LIBS` 抄过来 + 跟着未定义符号日志迭代"，不是"从零验证可行性"。
 
 #### 12.4 对 R6 成本的影响
 
@@ -849,10 +920,12 @@ end)
 | GTK3 | 0 | 0 |
 | GdkPixbuf | 0-2 | 0-2 |
 | 测试回归 | 6-8 | **8-12**（+menubar 回归） |
-| 静态链接 | 10-20 | **15-25**（+libgio 依赖链） |
+| 静态链接 | 10-20 | **6-12**（+libgio 链，配方已验证） |
 | **合计** | **25-40** | **34-52** |
 
 **增量：+9 至 +12 人天。**
+
+静态链接行从上一版的 `15-25` 下调到 `6-12`：配方照抄 `v-pcmanfm/build.sh`，剩下的工作是跟未定义符号日志迭代（见 12.3）。因合计由 Pango（15-30）主导，总计维持 34-52 不变，**降的是风险等级，不是工期**。
 
 #### 12.5 三条出路的取舍
 
@@ -862,7 +935,7 @@ end)
 | **B. 同步 Gio shim + fork menubar** | 见 12.3 | ✅ **推荐** |
 | C. 放弃 menubar 用 `awful.menu` 手写 | 无 `.desktop` 解析，手动维护菜单 | ❌ 失去能力 |
 
-**方案 B 的关键前提**：libgio 依赖链能静态化。`libgio-2.0.a` + `gio-unix` + `libmount` + `libselinux` + `libsystemd` + `libffi` 全静态链接在 Alpine/musl 上不一定顺，**需要实测验证**。
+**方案 B 的关键前提已验证**：libgio 依赖链能静态化。`docker-x11base` 的 `v-pcmanfm` 在 Alpine/musl 上已产出 37.1M 全静态二进制（`ldd` 报 "Not a valid dynamic program"），`libgio-2.0.a` 只拉进 `giomodule.o` / `gunixmounts.o` / `gzlibdecompressor.o` 三个目标文件，配方见 12.3。menubar 零 D-Bus（12.1），所以不会额外拉进 `gdbus*.o`——**这条前提已从"待验证"转为"可照抄"**。
 
 #### 12.6 小结
 
@@ -870,8 +943,8 @@ end)
 |----|-----|
 | 保留 menubar 需要保留 LGI 吗 | ❌ **不需要**，async 包装可去掉，只需同步 Gio shim |
 | 额外成本 | +9 至 +12 人天（25-40 → 34-52） |
-| 新增风险 | libgio 依赖链静态化（musl 上需实测） |
+| 新增风险 | ~~libgio 依赖链静态化（musl 上需实测）~~ → **已消除**，`v-pcmanfm` 先例 + 零 D-Bus |
 | 保留理由 | 应用启动器是唯一带 `.desktop` 解析的启动器 |
 | 替代 | `modkey+r` promptbox 已能覆盖命令行启动部分 |
 
-**保留 menubar 的真正成本不在写 shim（8-15 天），而在 libgio 依赖链能不能静态化——这是需要实测验证的硬门槛。**
+**保留 menubar 的成本就落在写 shim（8-15 天）+ 照抄 libgio 静态链接配方（6-12 天）。上一版把它写成"硬门槛"，实测证明不是：docker-x11base 已经用同一条链静态编出 37.1M 的 pcmanfm，menubar 零 D-Bus 所以更不会踩到 `gdbus` 那条分叉。**
