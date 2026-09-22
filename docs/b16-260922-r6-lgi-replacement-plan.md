@@ -2,7 +2,7 @@
 
 > **来源**：docs/b15-260922-code-repo-analysis.md 章节五（LGI 替代候选实测与最小替换边界）
 > **定位**：b15 章节五把 R6（抛弃 GI，纯 C 绑定 + Lua）从 120-240 人天修正为 45-95 人天，并判定"可做但不建议"。本文档是 R6 的**可执行施工方案**，不是可行性论证。
-> **结论先行**：R6 不是"重写半个 awesome"，是"**写一个 4 层 700-1000 行的 shim + 砍掉 Gio 和 menubar**"。技术风险只集中在 GLib 主循环一处，其余是体力活。细化后成本 **35-45 人天**，低于 b15 的下限估算。
+> **结论先行**：R6 不是"重写半个 awesome"，是"**写一个 4 层 700-1000 行的 shim + 砍掉 Gio 和 menubar**"。技术风险只集中在 GLib 主循环一处，其余是体力活。细化后成本 **25-40 人天**，低于 b15 的下限估算（GLib/Gio 两项经上游源码实测再次下调，校正过程见 8、）。
 
 ---
 
@@ -122,41 +122,87 @@ pango_cairo_create_layout / pango_cairo_set_font_and_layout / pango_cairo_show_l
 
 调用点仅 5 处：`lib/beautiful/init.lua`（4 处，字体解析）+ `lib/gears/color.lua`（1 处）。绕开 oopango 的 12 年债，且不需要同步其 API 演进。
 
-#### 3.3 GLib 主循环：15-30 人天，成本主体
+#### 3.3 GLib 主循环：3-6 人天（原估 15-30，校正见 8.1）
 
-`lib/gears/timer.lua:60` 的 `require("lgi").GLib` 支撑整个事件循环，是 R6 真正的硬骨头。
-
-**关键认知：障碍不在 glib 库本身**（`libglib-2.0.a` 可静态链接）**，而在"Lua 怎么调它"**。所以手写绑定的面非常小——awesome 只需要 3-4 个 GLib 源相关函数：
+**关键认知：GLib 主循环在 C 侧，不在 Lua 侧。** `awesome.c:896-897`：
 
 ```c
-// lib/vendor/lgishim_glib.c —— 核心 ~200 行
-// 1. source_new(destroy_cb)   → 创建 GLibSource，destroy_cb 是 Lua 函数
-// 2. source_attach(src)       → g_source_attach 到 default main context
-// 3. source_destroy / source_detach
-// 4. timeout_add(ms, func, data)  → 定时器
-// 5. idle_add(func, data)           → 空闲回调
+globalconf.loop = g_main_loop_new(NULL, FALSE);
+g_main_loop_run(globalconf.loop);
 ```
 
-**最大风险点：GLib source 回调与 Lua 协程的配合。** LGI 用 closure guard 防止 Lua 对象在 C 回调期间被 GC。必须手写等价物：Lua function marshal 成 userdata、引用计数管理、回调时 `lua_pcall`。写错的症状是**随机段错误且堆栈不指向绑定代码**。
+`luaa.c:241-242` 同样有 `g_main_loop_new` / `g_main_loop_quit`；`awesome.c:890` 用 `g_main_context_set_poll_func(g_main_context_default(), a_glib_poll)` 把 `xcb_poll_for_event` + `awesome_refresh()` 合并进 GLib poll。**GLib 是整个进程的心跳**（窗口事件、输入、渲染全跑在它上面），但这部分已经通过 `libglib-2.0` 静态链接，**完全不需要绑定**。
+
+Lua 侧的真实调用面只有 3 行（`lib/gears/timer.lua` 第 102 / 104 / 120 行）：
+
+```lua
+self.data.source_id = glib.timeout_add(glib.PRIORITY_DEFAULT, timeout_ms, function()
+    protected_call(self.emit_signal, self, "timeout")
+    return glib.SOURCE_CONTINUE
+end)
+glib.source_remove(self.data.source_id)
+```
+
+`lib/gears/event.lua` 里**零 GLib 调用**。所以需要的 API 只有：
+
+| 类型 | 项 |
+|------|-----|
+| 函数 | `g_timeout_add`、`g_source_remove` —— **2 个** |
+| 常量 | `G_PRIORITY_DEFAULT`、`G_SOURCE_CONTINUE` —— **2 个** |
+
+```c
+// lib/vendor/lgishim_glib.c —— 约 50 行
+// luaL_Reg: "timeout_add" → g_timeout_add, "source_remove" → g_source_remove
+// 常量: PRIORITY_DEFAULT, SOURCE_CONTINUE
+// 唯一难点在 closure marshal（见下）
+```
+
+**唯一真正的技术难点：closure 生命周期。** 注意 awesome 的 timer 回调**无参数**，靠闭包捕获 `self`：
+
+```lua
+glib.timeout_add(glib.PRIORITY_DEFAULT, timeout_ms, function()
+    protected_call(self.emit_signal, self, "timeout")   -- self 是闭包变量
+```
+
+LGI 用 closure guard 保证**整个闭包**在回调期间不失效。手写方案：closure marshal 成 userdata → `g_source_set_callback_user_data` 持有 → `g_source_set_destroy_notify` 释放。竞态点在 `source_remove` 与正在执行的回调之间。写错症状是**随机段错误，堆栈不指向绑定代码**。
 
 可参考 `trip-zip/somewm` 仓库的 `lgi_closure_guard.c`（10KB）+ `lgi_closure_guard.map`（66B）——思路可借，API 不可照抄（somewm 面向 wlroots 的回调模型）。
 
 **验收标准**：1000 个并发定时器下不泄漏、不重入。
 
-#### 3.4 Gio：10-20 人天 → **砍到 0-1 人天**
+#### 3.4 Gio：2-4 人天（原估"砍到 0-1"，校正见 8.2）
 
 Gio 的 4 处用途逐一定性：
 
-| 位置 | 用途 | 处理 | 依据 |
-|------|------|------|------|
-| `lib/gears/filesystem.lua` | 文件读写 | **砍**，改回 `io.open` | Gio.File 只是便利封装 |
-| `lib/beautiful/init.lua` | 主题文件加载 | **砍**，改回 `io.open` | 同上 |
-| `lib/naughty/dbus.lua` | D-Bus 通知图标 | **砍** | awesome C 内核自带 `dbus.c`（30KB），Lua 侧只是通知图标的补充 |
-| `lib/menubar/utils.lua` | menubar 配置 | **砍整个 menubar** | 依赖 GTK menubar + Gio，双重依赖 |
+| 位置 | 调用数 | 处理 | 依据 |
+|------|-------|------|------|
+| `lib/beautiful/init.lua:274` | 1 | 改 `io` 路径操作 | `Gio.File.new_for_path(config):get_parent()`，单行 |
+| `lib/gears/filesystem.lua` | 中 | **砍**，改 `io` + `lfs` | 只用 `query_info`×4 / `make_directory_with_parents` / `get_parent` / `query_file_type` / `enumerate_children` |
+| `lib/naughty/dbus.lua` | **21** | **砍，但必须打补丁** | 见下"dbus.c 兜不住" |
+| `lib/menubar/utils.lua` | 4 | **砍整个 menubar** | 含 `async_enumerate_children` + `gio.Async.start` |
 
-砍完后 **Gio 需求从 4 处降到 0**，10-20 人天归零。这是 R6 里最大的成本杠杆。
+**`dbus.c` 兜不住 `naughty/dbus.lua`。** `dbus.c:24-29` 头注释原文：
 
-**代价**：丢 menubar 支持 + 丢 D-Bus 通知图标。对一个容器桌面环境这两个都不是刚需。
+```
+/** A deprecated low-level D-Bus API **DO NOT USE**.
+ * `lgi.GDBus` is always better. This module will eventually be removed.
+ * If it ever breaks due to an upstream API change, it wont be fixed.
+```
+
+三条硬事实：① 官方标注 **DO NOT USE**、即将删除、坏了不修；② 它 `#include <dbus/dbus.h>`（**libdbus**），而 `naughty/dbus.lua` 用的是 `Gio.DBusConnection`（**GDBus**，在 libgio 里）——**完全不同的两个库**；③ 它只暴露一个 Lua 表 `awesome_dbus_lib[]`（`dbus.c:857`），全仓库实际只有测试在引用。
+
+**砍掉后的真实影响**：
+
+| 项 | 结果 |
+|----|------|
+| 本地通知（`naughty.notification.new()`） | ✅ 仍工作——wibox 渲染，不经 dbus |
+| 外部通知（`notify-send`、外部应用） | ❌ 收不到 |
+| 通知 action button 回调 | ❌ 无法回传 |
+| `notification.lua:813` | ⚠️ **`require("naughty.dbus")` 直接崩** |
+
+`lib/naughty/notification.lua:813`：`self._private.clients = require("naughty.dbus").get_clients(self)`；`lib/naughty/init.lua:13`：`naughty.dbus = require("naughty.dbus")`。**不是删文件就行，必须打补丁改这两处调用方。**
+
+**隐藏收益**：`libgio-2.0.a` 依赖 `gio-unix-2.0`、`libmount`、`libselinux`、`libsystemd`、`libffi`... **砍掉 Gio 需求，静态链接阶段能直接省掉这一整串依赖**。"Gio 10-20 人天"的真实含义从来不是写绑定，而是搞这条链接链。
 
 #### 3.5 GTK3：0 人天
 
@@ -206,13 +252,13 @@ awesome 已迁 CMake（commit `0a5e50c`），`*.c` 在仓库顶层、Lua 在 `li
 | 1-2 | shim 骨架 + Gtk stub + 编译侧 3 处 | `make` 通过，awesome 能启动到 crash |
 | 2-3 | Cairo shim（oocairo 包装）+ **5 处 surface 类型标识** | `gears.surface` 能输出纯色图 |
 | 3-4 | Pango 最小绑定（60 行手写） | `beautiful.font` 能渲染文字 |
-| 5-20 | **GLib 主循环 C 绑定**（含 closure guard） | 1000 定时器压力测试不泄漏、不重入 |
-| 20-21 | 砍 Gio 4 处 → `io.open` + C 侧 dbus | 主题加载正常 |
-| 21-22 | GdkPixbuf 50 行绑定 | 图片加载正常 |
-| 22-28 | 回归：跑 `tests/` 纯 Lua 单测子集 | 无 GI 依赖的测试全绿 |
-| 28-38 | 静态链接调试 | 二进制无动态依赖（`ldd` 只剩 libc） |
+| 4-8 | **GLib 绑定**：2 函数 + 2 常量 + closure guard | 1000 定时器压力测试不泄漏、不重入 |
+| 8-9 | 砍 Gio 4 处 → `io`/`lfs` + **补丁 `notification.lua:813` 与 `naughty/init.lua:13`** | 主题加载正常，本地通知正常 |
+| 9-10 | GdkPixbuf 50 行绑定 | 图片加载正常 |
+| 10-16 | 回归：跑 `tests/` 纯 Lua 单测子集 | 无 GI 依赖的测试全绿 |
+| 16-26 | 静态链接调试（砍 Gio 后链接链已简化） | 二进制无动态依赖（`ldd` 只剩 libc） |
 
-**总成本 ~35-45 人天**，低于 b15 章节五的 45-95 估算，原因是砍掉了 Gio（省 10-20）和 Pango 整体移植（省 5-15）。
+**总成本 ~25-40 人天**，低于 b15 章节五的 45-95 估算，原因是砍掉 Gio（省 10-20）、绕开 oopango（省 5-15），以及 GLib 经源码实测下调（省 10-20，见 8.1）。
 
 静态链接阶段参照本项目已有方法论（docs/b11 + gitee docker-x11base）：
 - libtool 会重排 LDFLAGS，必须用 `-Wl,--start-group` / `-Wl,--end-group` 包住整串库
@@ -248,13 +294,13 @@ oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后�
 |------|---------|---------|---------|
 | Cairo 层 | 0-3 | 0-3 | — |
 | Pango 层 | 10-20 | **2-4** | 不移植 oopango，手写 60 行最小绑定 |
-| GLib 主循环 | 15-30 | 15-30 | 成本主体，无压缩空间 |
-| Gio | 10-20 | **0-1** | 全砍，改 `io.open` + C 侧 dbus |
+| GLib 主循环 | 15-30 | **3-6** | C 侧 GLib 已是进程心跳且已静态；Lua 侧仅 2 函数（见 8.1） |
+| Gio | 10-20 | **2-4** | 4 处全砍；原写"C 侧 dbus.c 兜底"是错的（见 8.2） |
 | GTK3 | 0 | 0 | pcall 保护 |
 | GdkPixbuf | 0-2 | 0-2 | — |
 | 测试回归 | 10-20 | 6-8 | 只跑纯 Lua 子集 |
-| 静态链接 | 未单列 | 10-20 | 含 LDFLAGS 调优 |
-| **合计** | **45-95** | **35-45** | 砍 Gio + 绕开 oopango |
+| 静态链接 | 未单列 | 10-20 | 含 LDFLAGS 调优；砍 Gio 后链接链简化 |
+| **合计** | **45-95** | **25-40** | 砍 Gio + 绕开 oopango + GLib 实测下调 |
 
 #### 7.2 R6 在路线排序中的位置
 
@@ -262,7 +308,7 @@ oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后�
 R1  保留 lgi           :    0      容器默认
 R7  换 dwm 静态        :  5-15     ⭐ 性价比最高
 R9  换 somewm(Wayland) : 40-80    需接受后端切换
-R6  抛弃 GI 纯 C 绑定  : 35-45    本文；保留 Lua 生态的唯一自研路径
+R6  抛弃 GI 纯 C 绑定  : 25-40    本文；保留 Lua 生态的唯一自研路径
 R2  换 LuaGObject      : 20-30    仍动态，非静态化
 R3  换 lgob            :100-170   归档 15 年
 R5  半静态 GI          : 20-30    无实际收益
@@ -271,7 +317,7 @@ R4  换 LuaGnome        :120-240   不可行
 
 #### 7.3 结论
 
-- R6 细化后 **35-45 人天**，结论从 b15 的"可做但不建议"收窄为"**有条件建议**"
+- R6 细化后 **25-40 人天**（GLib/Gio 经源码实测再次下调，见 8、），结论从 b15 的"可做但不建议"收窄为"**有条件建议**"
 - 条件：**Lua 生态 + awesome 配置复用对本项目是刚需**
 - 若只为"静态 WM"，R7（dwm，5-15 人天）以 1/4 成本拿到同样收益
 - R6 的唯一不可替代价值：**保留 60 行调用点背后的整套 Lua widget/layout 生态**
@@ -281,4 +327,123 @@ R4  换 LuaGnome        :120-240   不可行
 | 文档 | 内容 |
 |------|------|
 | b15 章节五 | R6 人天从 120-240 修正为 45-95（调用面实测） |
-| **b16（本文）** | R6 施工方案细化，35-45 人天，可执行到"按天排期"粒度 |
+| **b16（本文）** | R6 施工方案细化，25-40 人天，可执行到"按天排期"粒度 |
+
+---
+
+### 8、源码实测校正：GLib 与 Gio
+
+> 3.3 / 3.4 的人天与方案在拿到上游 `0a5e50c` 源码后做了实测校正。本节目的是**说明原文那两处错在哪**，以及砍 Gio 的真实代价。
+
+#### 8.1 GLib：绑定面比"5 个函数"小一个量级
+
+**发现 1：GLib 主循环在 C 侧。** `awesome.c:896-897`：
+
+```c
+globalconf.loop = g_main_loop_new(NULL, FALSE);
+g_main_loop_run(globalconf.loop);
+```
+
+`luaa.c:241-242` 同样有 `g_main_loop_new` / `g_main_loop_quit`。`awesome.c:890`：
+
+```c
+g_main_context_set_poll_func(g_main_context_default(), a_glib_poll);
+```
+
+`a_glib_poll` 内部把 `xcb_poll_for_event` + `awesome_refresh()` 合并进 GLib poll 循环。**GLib 是整个进程的心跳**——窗口事件、输入、渲染全跑在它上面。但这部分已经通过 `libglib-2.0` 静态链接，**不需要任何 Lua 绑定**。
+
+**发现 2：Lua 侧调用面只有 3 行。** `lib/gears/timer.lua` 里 GLib 调用共 3 处（第 102 / 104 / 120 行），`lib/gears/event.lua` 里**零 GLib 调用**。原文"3-4 个函数"是错的：
+
+| 类型 | 实际所需 |
+|------|---------|
+| 函数 | `g_timeout_add`、`g_source_remove` —— 2 个 |
+| 常量 | `G_PRIORITY_DEFAULT`、`G_SOURCE_CONTINUE` —— 2 个 |
+
+原文列的 `source_new` / `source_attach` / `source_destroy` / `idle_add` 在 awesome 生产代码里**一处都没用**。绑定代码从 ~200 行降到 ~50 行，人天从 15-30 降到 **3-6**。
+
+**发现 3：回调靠闭包捕获 `self`，guard 必须覆盖整个闭包。**
+
+```lua
+glib.timeout_add(glib.PRIORITY_DEFAULT, timeout_ms, function()
+    protected_call(self.emit_signal, self, "timeout")
+```
+
+回调函数**无参数**，`self` 是闭包变量。guard 不能只护函数对象本身，必须护住整个闭包捕获的环境。
+
+#### 8.2 Gio：`dbus.c` 兜不住 `naughty/dbus.lua`
+
+原文写"砍掉 `naughty/dbus.lua`，awesome C 内核自带 `dbus.c`（30KB）"——**这条是错的**。`dbus.c:24-29` 头注释原文：
+
+```
+/** A deprecated low-level D-Bus API **DO NOT USE**.
+ * `lgi.GDBus` is always better. This module will eventually be removed.
+ * If it ever breaks due to an upstream API change, it wont be fixed.
+```
+
+三条硬事实：
+1. 官方标注 **DO NOT USE**、即将删除、坏了不修
+2. 它 `#include <dbus/dbus.h>`（**libdbus**）；`naughty/dbus.lua` 用的是 `Gio.DBusConnection`（**GDBus**，在 libgio 里）——**完全不同的两个库**
+3. 它只暴露一个 Lua 表 `awesome_dbus_lib[]`（`dbus.c:857`），全仓库实际只有测试在引用（`tests/test-dbus-error.lua`）
+
+**`naughty/dbus.lua` 的 21 处调用不是"几个调用"**，而是一个完整的 DBus service 实现（实现 `org.freedesktop.Notifications` 接口）：`DBusConnection` / `DBusProxy` / `DBusInterfaceInfo` / `DBusMethodInfo` / `bus_own_name` / `GLib.Variant` / `GObject.Closure` / `DBusArgInfo` / `BusType.SESSION` / `DBusCallFlags` / `DBusProxyFlags` / `BusNameOwnerFlags`。
+
+**发现 4：Gio 的真实成本从来不是"写绑定"。** `libgio-2.0.a` 依赖 `gio-unix-2.0`、`libmount`、`libselinux`、`libsystemd`、`libffi`... 原文"Gio 10-20 人天"的实际含义是搞这条链接链，而不是写 API 绑定。所以**砍掉 Gio 有隐藏收益**：静态链接阶段直接省掉这一整串依赖。
+
+#### 8.3 `gears/filesystem.lua` 降级：影响面 10 个文件
+
+`gears/filesystem` 被 10 个文件引用：`naughty/notification.lua`、`naughty/layout/legacy.lua`、`menubar/icon_theme.lua`、`menubar/menu_gen.lua`、`menubar/init.lua`、`menubar/utils.lua`、`wibox/widget/imagebox.lua`、`awful/completion.lua`、`awful/prompt.lua`、`gears/init.lua`。
+
+改 `io.open` 后有两个语义丢失：
+
+**① typed error 丢失**
+
+原代码靠 Gio 的 typed error 判断"目录已存在"：
+
+```lua
+if err.domain == Gio.IOErrorEnum and err.code == "EXISTS" then
+```
+
+改 `io.open` 后错误变成字符串/nil，**所有 `make_directory` 调用方的"已存在"分支失效**，扩散到上面 10 个文件。
+
+**② 流式枚举器变成一次性缓存**
+
+`filesystem.lua:202`：
+
+```lua
+local file_list = Gio.File.new_for_path(path):enumerate_children("standard::*", 0)
+```
+
+`enumerate_children` 是**惰性游标**，`io` 无等价物，必须一次性缓存到表。对 `/usr/share/icons` 这类大目录有内存和延迟代价——而 `menubar/icon_theme.lua` 正好枚举图标目录（砍 menubar 则此问题消失）。
+
+#### 8.4 两处"看起来简单但错就全坏"的位置
+
+| 位置 | 代码 | 错的影响 |
+|------|------|---------|
+| `lib/beautiful/init.lua:274` | `Gio.File.new_for_path(config):get_parent()` | 定位主题目录，**改错 → 主题解析失败 → 整个桌面外观崩**。只有一行，测试最容易漏 |
+| `lib/menubar/utils.lua:407` | `gio.Async.start(do_protected_call)(...)` | 菜单扫描是**异步**的；同步化会阻塞主循环导致 UI 卡顿。砍 menubar 则消失 |
+
+#### 8.5 `a_glib_poll` 的 Lua 栈断言（原文未列的隐蔽隐患）
+
+`awesome.c:460-464`：
+
+```c
+if (lua_gettop(L) != 0) {
+    warn("Something was left on the Lua stack, this is a bug!");
+    luaA_dumpstack(L);
+    lua_settop(L, 0);
+}
+```
+
+**每次 GLib poll 都断言 Lua 栈顶为 0。** 手写绑定如果在 C 回调里操作 Lua 栈后没清干净，会踩这个断言——表现为 warn 刷屏 + 随机行为，**而不是崩溃**，比段错误更难定位。LGI 有专门处理，手写要自己保证。
+
+#### 8.6 校正汇总
+
+| 项 | 原文 | 实测 | 依据 |
+|----|------|------|------|
+| GLib 需绑定 API | 5 个函数 | **2 函数 + 2 常量** | `timer.lua` 仅 3 行调用 |
+| GLib 人天 | 15-30 | **3-6** | 绑定代码 200 行 → 50 行 |
+| GLib 定位 | "成本主体" | **仅剩 closure guard 一处风险** | 主循环在 C 侧已静态 |
+| Gio dbus 兜底 | "C 侧 dbus.c" | ❌ **不成立** | `dbus.c:24` 标注 DO NOT USE；且是 libdbus 非 GDBus |
+| 砍 dbus.lua | "省 Gio" | ⚠️ **需补丁 2 处 require** | `notification.lua:813`、`naughty/init.lua:13` |
+| Gio 人天 | 10-20 | **2-4** | 真实成本是链接链，砍掉即省依赖树 |
+| **R6 合计** | 35-45 | **25-40** | — |
