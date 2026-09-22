@@ -1132,12 +1132,12 @@ bash-5.1# ldd src/pcmanfm
 | textbox/字体/主题文本 | Lua API → Pango | `lgi.Pango` + `lgi.PangoCairo` | shim 计划（15-30 人天，推测） | 无（若 shim 完成） |
 | 绘制/背景/边框/阴影 | Lua API → cairo | `lgi.cairo` | shim 计划（0-3 人天） | 无 |
 | 图标 PNG/JPG（imagebox） | Lua API → GdkPixbuf | `lgi.GdkPixbuf`（单点） | shim 计划（0-2 人天） | 无 |
-| 壁纸 | Lua API → cairo + GdkPixbuf | 两者 | shim 覆盖 | 无 |
 | **SVG 图标**（copycats 主题、`beautiful.icon`） | Lua API → Rsvg | `lgi.Rsvg`（pcall 可选） | **未覆盖** | **降级：SVG 不渲染** |
 | **系统通知**（外部 app → awesome） | D-Bus | `Gio.DBus` | **需补丁砍掉** | **需打补丁，否则崩** |
 | 进程内 `naughty.notify` | Lua API → cairo | `lgi.cairo` | shim 覆盖 | 无 |
 | rofi 启动器 | 子进程 | 无 | — | 无（但 rofi 需 GTK） |
 | 音量/亮度/媒体 | 子进程 `amixer`/`playerctl`/`xbacklight` | 无 | — | 无 |
+| 壁纸 | Lua API → cairo + GdkPixbuf | 两者 | shim 覆盖 | 无 |
 
 下表 6.1-6.7 是这张表的展开：6.1 是通信通道、6.2-6.3 是 LGI 依赖、6.4 是静态化边界、6.5 是两个未覆盖缺口、6.6 是数字校准。
 
@@ -1183,12 +1183,12 @@ img.finish()
 | textbox / 字体 / 主题文本 | `lgi.Pango` + `lgi.PangoCairo` | 8 个文件 ~25 个 API，见 一·3.2 |
 | 绘制/背景/边框/阴影/截图 | `lgi.cairo` | `lib/` 下 26 个文件，见 6.6 |
 | 图标 PNG/JPG（imagebox） | `lgi.GdkPixbuf` | `lib/gears/surface.lua:54`（`surface.load`，单点） |
-| 壁纸（`gears.wallpaper.maximized`） | `lgi.cairo` + `lgi.GdkPixbuf` | `lib/gears/wallpaper.lua:11`（旋转/平铺）+ `lib/gears/surface.lua:54`（文件加载） |
 | **SVG 图标** | **`lgi.Rsvg`** | `lib/wibox/widget/imagebox.lua:54`（pcall 可选加载，唯一消费者） |
 | **外部 app → awesome 通知** | **`Gio.DBus`** | `lib/naughty/dbus.lua` |
 | 进程内 `naughty.notify` | `lgi.cairo` | `lib/naughty/layout/legacy.lua` |
 | rofi 启动器（`-show-icons`） | 无 | 图标由 rofi 进程内 GTK 绘制，不走 awesome `imagebox.lua` |
 | 音量/亮度/媒体 | 无 | 子进程 `amixer`/`playerctl`/`xbacklight` |
+| 壁纸（`gears.wallpaper.maximized`） | `lgi.cairo` + `lgi.GdkPixbuf` | `lib/gears/wallpaper.lua:11`（旋转/平铺）+ `lib/gears/surface.lua:54`（文件加载） |
 
 注意 SVG 一行的**缓解因素**：`rofi -show-icons` 的图标由 rofi 进程内的 GTK/pixbuf 绘制，不经过 awesome 的 `imagebox.lua`，所以 Rsvg 缺口不影响 rofi 启动器的图标显示。受影响的是走 `beautiful.icon` / 主题 SVG 图标的 wibox 小部件。
 
