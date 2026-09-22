@@ -142,7 +142,7 @@ PangoCairo   : font_map_get_default, create_context, set_resolution, get_metrics
                (get_ascent/get_descent), get_font_description, 以及 cairo 回调
 ```
 
-另外 `cairo.Context` 有 **28 个方法、约 450 处调用**（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 51、`cr:rectangle` × 38……），分散在 10 个文件。这部分 3.1 已单列，不重复计入。
+另外 `cairo.Context` 有 **49 个方法、约 640 处调用**（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 52、`cr:rectangle` × 38……），分散在 36 个文件（`grep -rhoE 'cr:[a-z_]+'` 实测）。这部分 3.1 已单列，不重复计入。
 
 **为什么漏掉 textbox 影响这么大**：`textbox.lua:513-554` 是真正的富文本渲染路径——
 
@@ -407,9 +407,10 @@ R4  换 LuaGnome        :120-240   不可行
 spec/menubar/
   utils_spec.lua         # 含 parse_desktop_file / KeyFile 解析
   icon_theme_spec.lua
-  home/.icons/{icon6.xpm,icon7.svg}   # 9 个真实 fixture 文件
-  usr/share/{icon5.png,icon6.xpm,icon7.svg,.filename.png}
-  icons/awesome/{index.theme,16x16,32x32,48x48,64x64,scalable}
+  home/.icons/{icon5.png,icon6.xpm,icon7.svg}   # 3 个图片 fixture
+  usr/share/{.filename.png,icon5.png,icon6.xpm,icon7.svg}   # 4 个（含隐藏文件）
+  usr/share/icons/{icon2..icon5.png,.filename.png}          # 5 个
+  icons/awesome/   # 仅 index.theme；16x16/32x32/48x48/64x64/scalable 为空目录
 ```
 
 CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），在源码目录直接跑。
@@ -430,7 +431,7 @@ CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），�
 
 #### 8.5 cairo API 语义核查（0.5 天，风险低，排最后）
 
-`cairo.Context` 已数出 28 个方法、约 450 处调用（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 51、`cr:rectangle` × 38、`cr:paint` × 34、`cr:stroke` × 32……），但 `shape.lua`（28 处）和 `wibox/hierarchy.lua`（12 处）的具体语义还没看过。排在 Pango 后面，因为 cairo 有活的官方库 oocairo 可参照（3.1）。
+`cairo.Context` 已数出 49 个方法、约 640 处调用（`cr:line_to` × 83、`cr:set_source` × 60、`cr:translate` × 52、`cr:rectangle` × 38、`cr:paint` × 36、`cr:stroke` × 32……），但 `shape.lua`（18 处）和 `wibox/hierarchy.lua`（15 处）的具体语义还没看过。排在 Pango 后面，因为 cairo 有活的官方库 oocairo 可参照（3.1）。
 
 #### 8.6 librsvg：SVG 图标是四模块之外的缺失（0.5 天，先决策后动手）
 
@@ -441,10 +442,10 @@ CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），�
 | `Rsvg.Handle.new_from_data(data)` | `imagebox.lua:87` | `rsvg_handle_new_from_data` |
 | `Rsvg.Handle.new_from_file(path)` | `imagebox.lua:89` | `rsvg_handle_new_from_file` |
 | `handle:get_dimensions()` | `imagebox.lua:113`、`border.lua:122` | `rsvg_handle_get_dimensions` |
-| `handle:set_stylesheet(s)` | `imagebox.lua:188,202`、`border.lua:118` | `rsvg_handle_set_stylesheet` |
+| `handle:set_stylesheet(s)` | `imagebox.lua:188,202`、`border.lua:119` | `rsvg_handle_set_stylesheet` |
 | `handle:set_dpi(d)` | `imagebox.lua:197`、`border.lua:121` | `rsvg_handle_set_dpi` |
 | `handle:set_dpi_x_y(x, y)` | `imagebox.lua:195` | `rsvg_handle_set_dpi_x_y` |
-| `handle:render_cairo(cr)` | `imagebox.lua:310`、`border.lua:128` | `rsvg_handle_render_cairo` |
+| `handle:render_cairo(cr)` | `imagebox.lua:310`、`border.lua:129` | `rsvg_handle_render_cairo` |
 | `Rsvg.Handle:is_type_of(x)` | `imagebox.lua:408,423` | `g_object_is_type` |
 
 **7 个方法 + 1 个类型检查**，shim 约 100-150 行 C。`imagebox.lua:54` 的 `pcall` 失败只 `print_warning` 降级，不做也不会崩，只是 SVG 不渲染。
@@ -465,8 +466,8 @@ CMake 的 `check-unit` target 就是 `busted`（`CMakeLists.txt:449-462`），�
 | LGI 特有形态 | 调用次数 | 涉及文件 |
 |------|------|------|
 | `._native` | 10 | 5（`wibox/init.lua`×3、`gears/surface.lua`×2、`awful/_compat.lua`×2、`awful/client/shape.lua`×2、`awful/mouse/snap.lua`×1） |
-| `:finish()` | 18 | 13（`gears/wallpaper.lua`×5 最集中，其余分散在 naughty/wibox/awful） |
-| `:is_type_of()` | 9 | 5（`gears/color.lua`×2、`gears/surface.lua`×2、`gears/wallpaper.lua`×2、`imagebox.lua`×3） |
+| `:finish()` | 18 | 10（`gears/wallpaper.lua`×5 最集中；其余 9 个文件：`awful/client/shape.lua`、`awful/mouse/snap.lua`、`awful/wallpaper.lua`、`gears/surface.lua`、`naughty/dbus.lua`、`wibox/container/background.lua`、`wibox/container/tile.lua`、`wibox/init.lua`、`wibox/widget/init.lua`） |
+| `:is_type_of()` | 9 | 4（`gears/color.lua`×2、`gears/surface.lua`×2、`gears/wallpaper.lua`×2、`imagebox.lua`×3） |
 
 **这三者不是可选兼容项**：`surface.lua:49,62` 的 `is_type_of` 是 `gears.surface` 的类型分派入口，写错会让所有图标加载走错分支；`._native` 是把 C 指针传给其他绑定的唯一通道（`b12:345` 的 `c.shape_input = img._native`）。
 
@@ -1205,12 +1206,12 @@ bash-5.1# ldd src/pcmanfm
 
 | 通道 | 说明 | b12 实测用量 |
 |------|------|------|
-| 纯 Lua `require()` | lain/bling/rubato/awesome-wm-widgets/radical/awestore 全是纯 Lua，`require()` 时装进 awesome **同一个 Lua VM** | `require` ×17 |
-| awesome 公开 Lua API → C 内核 | awful/wibox/beautiful/gears/naughty 是 C 函数暴露给 Lua，下游落到 Xlib / GLib / cairo | `awful.key` ×34、`awful.spawn` ×10、`wibox.widget.textbox` ×4、`naughty.notify` ×3 |
-| 信号 | `connect_signal` / `emit_signal` / `naughty.connect_signal` | 各 3-4 处 |
+| 纯 Lua `require()` | lain/bling/rubato/awesome-wm-widgets/radical/awestore 全是纯 Lua，`require()` 时装进 awesome **同一个 Lua VM** | `require` ×18 |
+| awesome 公开 Lua API → C 内核 | awful/wibox/beautiful/gears/naughty 是 C 函数暴露给 Lua，下游落到 Xlib / GLib / cairo | `awful.key` ×35、`awful.spawn` ×15、`wibox.widget.textbox` ×4、`naughty.notify` ×3 |
+| 信号 | `connect_signal` / `naughty.connect_signal`（b12 未用 `emit_signal`） | `connect_signal` ×3、`naughty.connect_signal` ×1 |
 | 定时器 | `gears.timer` → GLib 主循环 | ×3 |
 | 子进程 | `awful.spawn` / `io.popen` / `sh -c` | rofi ×6、playerctl ×4、amixer ×3、xbacklight ×2 |
-| D-Bus | 系统通知规范 `org.freedesktop.Notifications` | 见 6.4 与 二·1.2 |
+| D-Bus | 系统通知规范 `org.freedesktop.Notifications` | 见 6.3 与 二·1.2 |
 
 前两条是主通道。**关键点**：b12 里的社区模块（lain/bling/rubato/radical/awestore 等）**一个都不需要单独安装绑定库**，它们是纯 Lua 代码，`require()` 后即成为 awesome 内的普通模块，通信成本为零。
 
