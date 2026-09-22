@@ -1111,3 +1111,108 @@ bash-5.1# ldd src/pcmanfm
 **保留 menubar 的成本就落在写 shim（8-15 天）+ 照抄 libgio 静态链接配方（6-12 天）。上一版把它写成"硬门槛"，实测证明不是：docker-x11base 已经用同一条链静态编出 37.1M 的 pcmanfm，menubar 零 D-Bus 所以更不会踩到 `gdbus` 那条分叉。**
 
 **但同步化确实引入了一个新代价：首次打开菜单时会卡 UI**。当前异步实现靠 `coroutine.yield` 让 GLib 主循环在每 100 文件之间继续处理输入（`docs/90-FAQ.md:24` 明确输入与绘制都在主线程）。规避方案是用 `glib.timeout_add` 分目录驱动，**而这个函数本就是 R6 的 GLib 绑定面（1.1）**，所以几乎零额外成本。净效果：代价不是新的人天，是新的一笔需要写对的代码。
+
+---
+
+### 6、b12 配置指南与第三方插件库对 R6 的兼容性
+
+> **提问原文**：
+>
+> `docs/b12-260920-awesome-config-guide.md` 这边文档所提到的插件库与配置项，是怎么与 awesome 通信的？他们会使用到 lgi 吗，lgi 剔除改成静态，会不会影响到他们？他们会用到额外的三方库吗，静态编译他们受影响吗？
+>
+> **一句话结论**：b12 自身 **0 处 `require("lgi")`**，插件不会"因为用了 LGI"而直接坏；影响全部是**间接的**——通过它们调用的 awesome 公开 API（awful/wibox/beautiful/gears/naughty）落到 LGI 绑定层。因此 R6 完成后 b12 绝大多数配置照常用，但有 **2 个缺口**需要本文档补充（6.5）。
+
+分析对象：`docs/b12-260920-awesome-config-guide.md`（1219 行）。以下数字均为对该文件与 `/tmp/awsh`（upstream `0a5e50c`）的 grep 实测，不是推测。
+
+#### 6.1 通信机制（6 条通道）
+
+| 通道 | 说明 | b12 实测用量 |
+|------|------|------|
+| 纯 Lua `require()` | lain/bling/rubato/awesome-wm-widgets/radical/awestore 全是纯 Lua，`require()` 时装进 awesome **同一个 Lua VM** | `require` ×17 |
+| awesome 公开 Lua API → C 内核 | awful/wibox/beautiful/gears/naughty 是 C 函数暴露给 Lua，下游落到 Xlib / GLib / cairo | `awful.key` ×34、`awful.spawn` ×10、`wibox.widget.textbox` ×4、`naughty.notify` ×3 |
+| 信号 | `connect_signal` / `emit_signal` / `naughty.connect_signal` | 各 3-4 处 |
+| 定时器 | `gears.timer` → GLib 主循环 | ×3 |
+| 子进程 | `awful.spawn` / `io.popen` / `sh -c` | rofi ×6、playerctl ×4、amixer ×3、xbacklight ×2 |
+| D-Bus | 系统通知规范 `org.freedesktop.Notifications` | 见 6.4 与 二·1.2 |
+
+前两条是主通道。**关键点**：b12 里的社区模块（lain/bling/rubato/radical/awestore 等）**一个都不需要单独安装绑定库**，它们是纯 Lua 代码，`require()` 后即成为 awesome 内的普通模块，通信成本为零。
+
+#### 6.2 b12 自身的 LGI 用量：几乎为零
+
+```
+require("lgi") / require('lgi') : 0 处
+Pango / pango                    : 0 处
+cairo                            : 1 处（b12:344）
+```
+
+唯一的 cairo 出现在 5.3 节的无边框窗口示例：
+
+```lua
+-- b12:344
+local img = cairo.ImageSurface(cairo.Format.A1, 0, 0)
+c.shape_input = img._native
+img.finish()
+```
+
+顺带发现一处 **b12 自身的文档 bug**：这里用了裸 `cairo` 全局，但 **awesome 不导出 cairo 全局**——`lib/main.lua` 无 cairo 注册点，而 `lib/awful/menu.lua:24`、`lib/awful/placement.lua:100`、`lib/gears/surface.lua:12` 都是 `local cairo = require("lgi").cairo`。该片段需要手动加 require 才能跑。
+
+#### 6.3 真正的影响面：间接依赖
+
+插件不会直接坏，但 awesome 内部调 LGI 的路径会跟着 R6 走。逐项对照：
+
+| b12 用法 | 底层 LGI | R6 覆盖情况 | 结果 |
+|------|------|------|------|
+| 布局/标签/快捷键/规则（占文档大头） | 无（纯 Lua + C 内核） | — | **无影响** |
+| textbox / 字体 / 主题文本 | `lgi.Pango` + `lgi.PangoCairo` | shim 计划 15-30 人天（推测值，见 一·3.2） | 完成后无影响 |
+| 绘制/背景/边框/阴影/截图 | `lgi.cairo` | shim 0-3 人天 | 完成后无影响 |
+| PNG/JPG 图标、壁纸文件 | `lgi.GdkPixbuf`（`lib/gears/surface.lua:54` 单点） | shim 0-2 人天 | 无影响 |
+| **SVG 图标** | **`lgi.Rsvg`**（`lib/wibox/widget/imagebox.lua:54` pcall 可选加载） | **不在四模块范围** | **降级：SVG 不渲染** |
+| **外部 app → awesome 通知** | **`Gio.DBus`**（`lib/naughty/dbus.lua`） | **砍 Gio 需补丁** | 见 二·1.2 |
+| 进程内 `naughty.notify` | cairo | shim 覆盖 | 无影响 |
+| rofi 启动器（`-show-icons`） | 无（图标由 rofi 自己的 GTK 绘制，不走 awesome imagebox） | — | 无影响 |
+| 音量/亮度/媒体（amixer/playerctl/xbacklight） | 无（子进程） | — | 无影响 |
+
+注意 SVG 一行的**缓解因素**：`rofi -show-icons` 的图标由 rofi 进程内的 GTK/pixbuf 绘制，不经过 awesome 的 `imagebox.lua`，所以 Rsvg 缺口不影响 rofi 启动器的图标显示。受影响的是走 `beautiful.icon` / 主题 SVG 图标的 wibox 小部件。
+
+#### 6.4 三方库：静态化的影响边界
+
+静态化只作用于 awesome 二进制自身**链接**的库。据此分两类：
+
+- **独立进程，完全不受影响**：rofi / playerctl / amixer / xbacklight / sh / find / sort。它们是容器里的独立动态程序，awesome 通过 `fork`+`exec` 调用，awesome 静态与否与它们无关。只要容器里有它们就行。
+- **经 LGI 加载的 C 库，受静态化影响**：只有 **librsvg** 一个。它不是独立进程，而是 `pcall(function() Rsvg = lgi.Rsvg end)` 加载的 GI 绑定对象，GI 系统没了它就没了。
+
+**一个隐含冲突**：**rofi 运行时依赖 GTK3**。所以"awesome 砍掉 GTK"不等于"容器无 GTK"——只要还在用 rofi，容器就得保留 GTK 动态库。这与 R6 的"容器瘦化"叙述需要对齐，否则会误判瘦身空间。
+
+#### 6.5 两个应补进待办的缺口
+
+本节发现两处 一·8 待办尚未覆盖的项：
+
+1. **Rsvg 缺口**——四模块范围（cairo + Pango + GLib + Gio）未列 librsvg，但 SVG 图标主题会因此失效。收敛点单一（唯一消费者 `lib/wibox/widget/imagebox.lua:51-56`），失败时只 `gdebug.print_warning` 降级。处置选项：也写一个 Rsvg shim（librsvg 的 `rsvg_handle_render_document` 单函数面），或明确接受"SVG 图标不可用"并在容器里改用 PNG 图标主题。
+2. **LGI 特有的 API 形状**——`._native`（`b12:345`、`surface.lua:67`）、`:finish()`（`b12:347`）、`:is_type_of()`（`surface.lua:49,62`、`imagebox.lua:408`）。R6 shim 若按纯 C API 写而不伪造这些访问器/元方法，**库级和用户级代码都会挂**。这类"API 形状兼容"目前本文档未单列，属于 shim 设计约束，应补进 一·8。
+
+#### 6.6 一个需要校准的数字（不抬高成本）
+
+一·1.2 的表格写 cairo 为"8+"引用。实测 `lib/` 下有 **26 个文件**引用 `cairo.`：
+
+| 文件 | 次数 | 文件 | 次数 |
+|------|------|------|------|
+| `gears/surface.lua` | 23 | `wibox/init.lua` | 7 |
+| `wibox/container/background.lua` | 17 | `wibox/container/tile.lua` | 7 |
+| `wibox/container/border.lua` | 15 | `gears/matrix.lua` | 5 |
+| `gears/wallpaper.lua` | 13 | `gears/color.lua` | 12 |
+| `beautiful/theme_assets.lua` | 11 | `awful/placement.lua` | 3 |
+| `wibox/drawable.lua` | 9 | `awful/menu.lua` | 2 |
+
+这个更大的数字**不抬高 cairo 项的成本**：shim 是**表级替换**（换掉模块表，而非逐文件改调用），26 个文件零改动。这正是"shim 收敛"原则（第 2 节）的红利——调用面再大也不变成成本，成本只落在 shim 本身。
+
+#### 6.7 小结
+
+| 问 | 答 |
+|----|-----|
+| b12 的插件库会用到 LGI 吗 | ❌ **不直接用**（`require("lgi")` 0 处）；但间接依赖经 awesome 内部 API 传导 |
+| 去掉 LGI 改静态，会影响 b12 吗 | ✅ 绝大部分不影响；⚠️ 两个缺口：**SVG 图标（Rsvg）** 与 **D-Bus 通知（Gio）** |
+| b12 会用到额外三方库吗 | 会用，但都在**外部进程**里（rofi/playerctl/amixer/xbacklight/sh） |
+| 静态编译影响这些三方库吗 | ❌ **不影响**，它们是独立动态程序；唯一受影响的是经 LGI 加载的 **librsvg** |
+| 是否改变 R6 总成本 | ❌ 不改变（缺口见 6.5，Rsvg 单函数面、D-Bus 补丁已计入二·1.2） |
+| 额外结论 | 用 rofi 则容器须保留 GTK → R6"容器瘦化"空间需按此重估 |
+
