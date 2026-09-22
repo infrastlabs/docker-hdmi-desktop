@@ -465,6 +465,57 @@ lgi 是 AwesomeWM 的**核心 Lua 绑定层**，基于 gobject-introspection（G
 
 **最终判断**：awesome 的四条静态化路径全部不划算。容器路线仍是 `apk add awesome`（动态 + lgi + GI）；如果目标是"容器里跑静态 WM"，直接走路径 ① 换 dwm/openbox，不要试图改造 awesome。
 
+### 7、Lua 图形生态横向证据：静态化是可行的，GI 耦合才是真问题
+
+> 校对结论：**如果只盯着 "lgi 替代方案"，会误以为"Lua 做不了静态"。把视野扩大到整个 Lua 图形生态，事实恰好相反——LÖVE（8765★）等项目已充分证明"Lua + 静态图形"是生产级可行的。awesome 静态化失败的精确根因是 GI 反射耦合，不是 "Lua 无法静态"**。
+
+**Lua 图形生态实测数据（2026-09-20）**：
+
+| 项目 | GitHub | ⭐ / Fork | 静态支持 | 最近 push | 说明 |
+|------|--------|-----------|---------|----------|------|
+| **LÖVE** | [love2d/love](https://github.com/love2d/love) | **8765** / 645 | ✅ `./configure --enable-static --disable-shared` | **2026-09-20** | Lua 图形生态的**事实标准**；基于 SDL2 全静态；比 LGI 大 18 倍 |
+| **Defold** | [defold/defold](https://github.com/defold/defold) | **6308** / 455 | ⚠️ 主要产平台应用包（APK/IPA），非传统静态二进制 | **2026-09-22** | 引擎生态最活跃之一 |
+| **Lua-bgfx** | [cloudwu/lua-bgfx](https://github.com/cloudwu/lua-bgfx) | **247** / 42 | ✅ 需先编 bgfx 静态库再编绑定 | 2024-05 | 直接手写 C 绑定，无 GI 反射 |
+| **lua-lpugl** | [osch/lua-lpugl](https://github.com/osch/lua-lpugl) | 35 / 1 | ✅ 底层用 nanovg + oocairo + luagl，天然静态 | **2026-07** | 极简 GUI API |
+| **oocairo** | [awesomeWM/oocairo](https://github.com/awesomeWM/oocairo) | 25 / 10 | ✅ 纯 C 手写绑定 | 2025-08 | **注：归属 awesomeWM 组织**——上游自身也在维护非 GI 的 Cairo 绑定 |
+| **IUP (iuplua)** | [iup.org](http://www.tecgraf.puc-min.br/iup/)（GitHub 无官方主仓库） | — | ✅ 原生支持（Windows 需 `ole32.lib`；GTK 按序 `-lgtk-x11-2.0 -lgdk-x11-2.0`） | 独立托管 | 老牌 GUI 库，静态友好 |
+| **wxLua** | [pkulchenko/wxlua](https://github.com/pkulchenko/wxlua) | 357 / 60 | ✅ `RUNTIME_LIBS=static` + CMake | **2026-09-19** | 见章节三 3、 |
+| **LuiGI** | — | — | ❌ 作者建议改 LGI | — | 已弃用 |
+| **LuaGnome** | 无 GitHub 官方仓库 | — | 库仅 ~350 kB | — | 仅存历史归档 |
+| **pastel2d** | [andrenho/pastel2d](https://github.com/andrenho/pastel2d) | 1 / 0 | ✅ SDL3 + LuaJIT，示例仅 1.4 MB | 2025-05 | 极新极小，尚未验证生产可用性 |
+| **LÖVR** | GitHub 上 404 | — | 未明确 | — | 用户提供的 1.9k★ 未找到对应仓库 |
+| **lua-cairo** | GitHub 上 404 | — | 未明确 | — | 用户提及，仅存 LuaRocks |
+
+**校对修正**：
+- LÖVE 实际 **8765★**（用户提到 4.8k 低估近一半）
+- LÖVR 和 lua-cairo 在 GitHub 上找不到对应仓库
+- pastel2d 只有 1★，且示例仅 1.4 MB 是设计目标不是通用能力
+- **IUP 官方主仓库不在 GitHub**（在 tecgraf.puc-min.br 独立托管），GitHub 上的都是个人 fork 且 0★
+
+**关键洞察**：
+
+1. **"Lua + 静态图形" 是可行的、成熟的、活跃的**——LÖVE 8765★ / Defold 6308★ 是两个 6k+ 星的活证据，两者都在 2026-09 仍在推
+2. **能静态的 Lua 图形项目，走的都是"手写 C 绑定 + 静态链接"**——LÖVE 用 SDL2、lua-bgfx 用 bgfx、oocairo 直接手写 Cairo、lua-lpugl 用 nanovg+oocairo+luagl，**没有一个走 GI 反射**
+3. **GI 反射（LGI / LuaGObject）是唯一需要 dlopen 的路线**——这也是 awesome 静态化真正卡死的地方
+4. **oocairo 在 awesomeWM 组织下**：说明 awesome 上游本身就有非 GI 的 Cairo 绑定选项，只是主代码没用它
+5. **awesome 的困境是"选择"而非"技术"**：LGI 路线让开发体验极佳（自动生成绑定、OOP 风格），但代价是运行时 dlopen 无法避免；改成手写 C 绑定可以静态化，但等于重写绑定层
+
+**对前面结论的精确化**：
+
+| 原表述 | 精确化后 |
+|--------|---------|
+| awesome 全静态不可行 | ✅ 保持 |
+| 因为 lgi 无法静态化 | ❌ 更精确：**不是"Lua 无法静态"**（LÖVE 8765★ 就是反例），是"GI 反射架构与静态链接互斥" |
+| lgob 是唯一原生静态方案 | ✅ 保持，但要标注已归档 15 年 |
+| 换绑定层需要重写半个 awesome | ✅ 保持；且新证据表明"重写"是**唯一**可行路径——oocairo 已经在 awesomeWM 组织下证明了这条技术路径 |
+
+**结论闭环**：
+
+- **技术上**：Lua 静态图形完全可行（LÖVE 8765★ 是活证据）
+- **awesome 特殊困境**：GI 反射耦合 = 51/170 文件依赖 lgi + dlopen 架构 = 无法在不改代码的前提下静态化
+- **唯一解法**：彻底重写绑定层（等价于 R6，6-12 人月），行业 626 个 fork 无人尝试本身就是答案
+- **对本项目的意义**：awesome 静态化在工程上不值得投入；直接走 R7（dwm/openbox 静态）
+
 ## 四、全量选型清单与施工复杂度估算
 
 > 直接回答**"以上信息能否为静态编译提供可行性"**：
