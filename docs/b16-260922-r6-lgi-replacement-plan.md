@@ -1132,6 +1132,7 @@ bash-5.1# ldd src/pcmanfm
 | textbox/字体/主题文本 | Lua API → Pango | `lgi.Pango` + `lgi.PangoCairo` | shim 计划（15-30 人天，推测） | 无（若 shim 完成） |
 | 绘制/背景/边框/阴影 | Lua API → cairo | `lgi.cairo` | shim 计划（0-3 人天） | 无 |
 | 图标 PNG/JPG（imagebox） | Lua API → GdkPixbuf | `lgi.GdkPixbuf`（单点） | shim 计划（0-2 人天） | 无 |
+| 壁纸 | Lua API → cairo + GdkPixbuf | 两者 | shim 覆盖 | 无 |
 | **SVG 图标**（copycats 主题、`beautiful.icon`） | Lua API → Rsvg | `lgi.Rsvg`（pcall 可选） | **未覆盖** | **降级：SVG 不渲染** |
 | **系统通知**（外部 app → awesome） | D-Bus | `Gio.DBus` | **需补丁砍掉** | **需打补丁，否则崩** |
 | 进程内 `naughty.notify` | Lua API → cairo | `lgi.cairo` | shim 覆盖 | 无 |
@@ -1181,7 +1182,8 @@ img.finish()
 | 布局/标签/快捷键/规则 | 无（纯 Lua + C 内核） | — |
 | textbox / 字体 / 主题文本 | `lgi.Pango` + `lgi.PangoCairo` | 8 个文件 ~25 个 API，见 一·3.2 |
 | 绘制/背景/边框/阴影/截图 | `lgi.cairo` | `lib/` 下 26 个文件，见 6.6 |
-| PNG/JPG 图标、壁纸文件 | `lgi.GdkPixbuf` | `lib/gears/surface.lua:54`（单点） |
+| 图标 PNG/JPG（imagebox） | `lgi.GdkPixbuf` | `lib/gears/surface.lua:54`（`surface.load`，单点） |
+| 壁纸（`gears.wallpaper.maximized`） | `lgi.cairo` + `lgi.GdkPixbuf` | `lib/gears/wallpaper.lua:11`（旋转/平铺）+ `lib/gears/surface.lua:54`（文件加载） |
 | **SVG 图标** | **`lgi.Rsvg`** | `lib/wibox/widget/imagebox.lua:54`（pcall 可选加载，唯一消费者） |
 | **外部 app → awesome 通知** | **`Gio.DBus`** | `lib/naughty/dbus.lua` |
 | 进程内 `naughty.notify` | `lgi.cairo` | `lib/naughty/layout/legacy.lua` |
