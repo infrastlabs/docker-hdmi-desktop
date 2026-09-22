@@ -6,13 +6,15 @@
 
 ---
 
-## 一、目标与前置事实
+## 一、R6 施工方案：抛弃 LGI 的手写 C 绑定
 
-### 1、R6 定义
+### 1、目标与前置事实
+
+#### 1.1 R6 定义
 
 awesome 静态化的障碍是 `lgi → gobject-introspection → dlopen` 这条链。R6 的做法是**不动 awesome 的 X11 C 内核**（它本来就静态友好：纯 Xlib、无 dlopen、无 GI），只把 Lua 侧的 LGI 绑定层替换为手写 C 绑定。
 
-### 2、LGI 真实调用面（上游 commit `0a5e50c` 实测）
+#### 1.2 LGI 真实调用面（上游 commit `0a5e50c` 实测）
 
 ```
 生产代码活跃调用行（去注释/文档）: 60
@@ -31,13 +33,13 @@ awesome 静态化的障碍是 `lgi → gobject-introspection → dlopen` 这条�
 | `GdkPixbuf` | 1 | 图片加载 | 单一调用点 |
 | `Gtk 3.0` | 4 | 主题变量读取 | pcall 保护，可零成本砍 |
 
-### 3、GLib/Gio 是唯一真空缺
+#### 1.3 GLib/Gio 是唯一真空缺
 
 GitHub API 全量搜索 `total_count` 全为 0：`lua glib gio binding` / `lgi replacement glib lua` / `lgol lua` / `awesome wm static glib`。GI 反射的 GLib/Gio Lua 绑定从来只有 LGI 一家，且无人做过静态版。**这就是 R6 必须手写的部分。**
 
 ---
 
-## 二、第一原则：shim 收敛，不改 39 个文件
+### 2、第一原则：shim 收敛，不改 39 个文件
 
 LGI 的 60 行调用散布在 39 个文件，逐文件改是 45-95 人天估算里的隐性浪费。**正确做法是做 API 形状的 shim，把收敛点降到 1 个文件**：
 
@@ -67,9 +69,9 @@ sed -i 's/require("lgi")/require("lgishim")/g' lib/**/*.lua lib/*.lua
 
 ---
 
-## 三、逐模块改法
+### 3、逐模块改法
 
-### 3.1 Cairo：0-3 人天，但有个隐蔽坑
+#### 3.1 Cairo：0-3 人天，但有个隐蔽坑
 
 用 [awesomeWM/oocairo](https://github.com/awesomeWM/oocairo)（官方，25★，2025-08 活跃，纯 C）。
 
@@ -103,7 +105,7 @@ function Surface._wrap(s) return setmetatable({ _s = s }, Surface) end
 
 **隐蔽坑**：`lib/gears/surface.lua` 第 35 / 48 / 70 / 109 / 119 行有 **5 处 "lgi cairo surface" 类型判断**（源码注释 `-- Try to convert the argument into an lgi cairo surface.`）。LGI 用 type 名区分对象，shim 必须提供可辨识标识（上面的 `__typename` 字段），否则 `_to_surface` 这类转换函数**静默失败**——不报错，只是画不出图，会浪费 2-3 天排查。
 
-### 3.2 Pango：10-20 人天，但有更省的绕法
+#### 3.2 Pango：10-20 人天，但有更省的绕法
 
 oopango（[awesomeWM/oopango](https://github.com/awesomeWM/oopango)）停滞 12 年（2014-10 最后 push）。现代 pango 1.50+ 的 `PangoFontDescription` API 有变更，整体移植是体力活且要背 12 年的债。
 
@@ -120,7 +122,7 @@ pango_cairo_create_layout / pango_cairo_set_font_and_layout / pango_cairo_show_l
 
 调用点仅 5 处：`lib/beautiful/init.lua`（4 处，字体解析）+ `lib/gears/color.lua`（1 处）。绕开 oopango 的 12 年债，且不需要同步其 API 演进。
 
-### 3.3 GLib 主循环：15-30 人天，成本主体
+#### 3.3 GLib 主循环：15-30 人天，成本主体
 
 `lib/gears/timer.lua:60` 的 `require("lgi").GLib` 支撑整个事件循环，是 R6 真正的硬骨头。
 
@@ -141,7 +143,7 @@ pango_cairo_create_layout / pango_cairo_set_font_and_layout / pango_cairo_show_l
 
 **验收标准**：1000 个并发定时器下不泄漏、不重入。
 
-### 3.4 Gio：10-20 人天 → **砍到 0-1 人天**
+#### 3.4 Gio：10-20 人天 → **砍到 0-1 人天**
 
 Gio 的 4 处用途逐一定性：
 
@@ -156,7 +158,7 @@ Gio 的 4 处用途逐一定性：
 
 **代价**：丢 menubar 支持 + 丢 D-Bus 通知图标。对一个容器桌面环境这两个都不是刚需。
 
-### 3.5 GTK3：0 人天
+#### 3.5 GTK3：0 人天
 
 `lib/beautiful/gtk.lua` 是唯一使用点，已包在 `pcall` 里：
 
@@ -173,7 +175,7 @@ end
 
 shim 里 `lgi.require` 恒返回 `nil`，已有的 `print_warning` + `return nil` 路径自然走通，上层调用方全部对 `nil` 有容错。**0 人天，零改动。**
 
-### 3.6 GdkPixbuf：0-2 人天
+#### 3.6 GdkPixbuf：0-2 人天
 
 仅 `lib/gears/surface.lua:54` 一处：`GdkPixbuf.Pixbuf.new_from_file(_surface)`。
 
@@ -183,7 +185,7 @@ shim 里 `lgi.require` 恒返回 `nil`，已有的 `print_warning` + `return nil
 
 ---
 
-## 四、编译侧要动的 3 处
+### 4、编译侧要动的 3 处
 
 ```
 CMakeLists.txt          → required_modules 里的 lgi 依赖，换成 4 个 lua 模块
@@ -195,7 +197,7 @@ awesome 已迁 CMake（commit `0a5e50c`），`*.c` 在仓库顶层、Lua 在 `li
 
 ---
 
-## 五、施工顺序与验收信号
+### 5、施工顺序与验收信号
 
 按"可独立验证"排序，每步都有明确的成功信号：
 
@@ -218,29 +220,29 @@ awesome 已迁 CMake（commit `0a5e50c`），`*.c` 在仓库顶层、Lua 在 `li
 
 ---
 
-## 六、风险清单
+### 6、风险清单
 
-### 6.1 GLib closure guard（高）
+#### 6.1 GLib closure guard（高）
 
 C 回调期间 Lua 对象被 GC，症状是**随机段错误，无堆栈指向绑定代码**。somewm 的 `lgi_closure_guard.c` + `lgi_closure_guard.map` 是现成参考，但 API 不可照抄。
 
-### 6.2 cairo surface 类型判别（中，但排查成本最高）
+#### 6.2 cairo surface 类型判别（中，但排查成本最高）
 
 `lib/gears/surface.lua` 5 处判断点（第 35/48/70/109/119 行）。shim 的 metatable 必须能被类型检查识别。**写错不报错，只是画不出图**——预计浪费 2-3 天排查。
 
-### 6.3 测试子集（中）
+#### 6.3 测试子集（中）
 
 awesome 的 `tests/` 大量依赖真实 X11 + LGI 的集成测试。静态版大概率只能跑纯 Lua 单测。用 `luatest` 标签过滤出无 GI 依赖的子集，**别指望全绿**。
 
-### 6.4 单作者押注风险（低，但需注意）
+#### 6.4 单作者押注风险（低，但需注意）
 
 oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后再次停滞，Cairo 层需要自维护。
 
 ---
 
-## 七、成本汇总与结论
+### 7、成本汇总与结论
 
-### 1、对比表
+#### 7.1 对比表
 
 | 子项 | b15 估算 | 本文细化 | 差异原因 |
 |------|---------|---------|---------|
@@ -254,7 +256,7 @@ oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后�
 | 静态链接 | 未单列 | 10-20 | 含 LDFLAGS 调优 |
 | **合计** | **45-95** | **35-45** | 砍 Gio + 绕开 oopango |
 
-### 2、R6 在路线排序中的位置
+#### 7.2 R6 在路线排序中的位置
 
 ```
 R1  保留 lgi           :    0      容器默认
@@ -267,14 +269,14 @@ R5  半静态 GI          : 20-30    无实际收益
 R4  换 LuaGnome        :120-240   不可行
 ```
 
-### 3、结论
+#### 7.3 结论
 
 - R6 细化后 **35-45 人天**，结论从 b15 的"可做但不建议"收窄为"**有条件建议**"
 - 条件：**Lua 生态 + awesome 配置复用对本项目是刚需**
 - 若只为"静态 WM"，R7（dwm，5-15 人天）以 1/4 成本拿到同样收益
 - R6 的唯一不可替代价值：**保留 60 行调用点背后的整套 Lua widget/layout 生态**
 
-### 4、与 b15 的关系
+#### 7.4 与 b15 的关系
 
 | 文档 | 内容 |
 |------|------|
