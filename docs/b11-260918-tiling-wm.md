@@ -452,7 +452,7 @@ awe 仓库代码很简洁，仓库提交管理得很好，而且是棵常青树�
 
 - **SomeWM**（[trip-zip/somewm](https://github.com/trip-zip/somewm)，388★，活跃 2026-09）：将 AwesomeWM 移植到 Wayland 的项目，目标是实现 100% 的 Lua API 兼容，让用户可以直接沿用现有的 rc.lua 配置和组件。项目支持 naughty 通知库和 ruled.notification 规则，并在 AUR、Debian/Ubuntu 和 Fedora 等仓库有打包（1.4.0 稳定版，基于 wlroots 0.19，支持 `awesome.restart()` 热重载）。
 - **Pinnacle**（[pinnacle-comp/pinnacle](https://github.com/pinnacle-comp/pinnacle)，638★，活跃 2026-06）：基于 Rust 和 Smithay 构建的 Wayland 合成器，明确以"为 Wayland 打造 AwesomeWM"为目标。支持标签系统、动态平铺和自定义布局，并提供了 Lua 和 Rust 两种配置方式（内置 master-stack/spiral/dwindle/fair 等布局），在概念上高度致敬 AwesomeWM。
-- **Way Cooler**（[way-cooler/way-cooler](https://github.com/way-cooler/way-cooler)，2139★，2019 归档）：用 Rust 编写的 Wayland 合成器，深受 AwesomeWM 和 i3 的启发。使用 Lua 进行配置，并像 AwesomeWM 一样，将扩展实现为独立的客户端程序，通过 D-Bus 进行通信。该项目目前已归档，但其设计思路仍有参考价值。
+- **Way Cooler**（[way-cooler/way-cooler](https://github.com/way-cooler/way-cooler)，2139★，2019 归档）：用 **C** 编写（wlroots + meson 构建）的 Wayland 合成器，定位是"AwesomeWM 的 Wayland 合成器组件"，运行打补丁的 awesome 客户端、配置即 Lua（rc.lua），并将扩展实现为独立客户端程序（早期版本曾用 Rust + wlc，后重写为 C）。该项目目前已归档，但其设计思路仍有参考价值。
 - **CwC**（[Cudiph/cwcwm](https://github.com/Cudiph/cwcwm)，186★，活跃 2026-09）：基于 wlroots 的可扩展 Wayland 合成器，深受 AwesomeWM 影响，同样使用 Lua 配置和 C 插件扩展。项目文档特别提到，其源自 AwesomeWM 的 API 保证不会轻易破坏，以维持配置的稳定性（基于 wlroots 0.20，AUR 已有 cwc 包）。
 
 #### 2.2 受启发的独立项目（借鉴 Lua 可编程配置或标签式工作流，但并非直接移植）
