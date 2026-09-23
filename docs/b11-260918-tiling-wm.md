@@ -450,19 +450,17 @@ awe 仓库代码很简洁，仓库提交管理得很好，而且是棵常青树�
 
 #### 2.1 直接衍生与重实现（以 AwesomeWM 的代码或 API 为蓝本，力求在 Wayland 下复现其体验）
 
-- **SomeWM**（[trip-zip/somewm](https://github.com/trip-zip/somewm)，388★，活跃 2026-09）：将 AwesomeWM 移植到 Wayland 的项目，目标是实现 100% 的 Lua API 兼容，让用户可以直接沿用现有的 rc.lua 配置和组件。项目支持 naughty 通知库和 ruled.notification 规则，并在 AUR、Debian/Ubuntu 和 Fedora 等仓库有打包。
-- **Pinnacle**（[pinnacle-comp/pinnacle](https://github.com/pinnacle-comp/pinnacle)，638★，活跃 2026-06）：基于 Rust 和 Smithay 构建的 Wayland 合成器，明确以"为 Wayland 打造 AwesomeWM"为目标。支持标签系统、动态平铺和自定义布局，并提供了 Lua 和 Rust 两种配置方式，在概念上高度致敬 AwesomeWM。
+- **SomeWM**（[trip-zip/somewm](https://github.com/trip-zip/somewm)，388★，活跃 2026-09）：将 AwesomeWM 移植到 Wayland 的项目，目标是实现 100% 的 Lua API 兼容，让用户可以直接沿用现有的 rc.lua 配置和组件。项目支持 naughty 通知库和 ruled.notification 规则，并在 AUR、Debian/Ubuntu 和 Fedora 等仓库有打包（1.4.0 稳定版，基于 wlroots 0.19，支持 `awesome.restart()` 热重载）。
+- **Pinnacle**（[pinnacle-comp/pinnacle](https://github.com/pinnacle-comp/pinnacle)，638★，活跃 2026-06）：基于 Rust 和 Smithay 构建的 Wayland 合成器，明确以"为 Wayland 打造 AwesomeWM"为目标。支持标签系统、动态平铺和自定义布局，并提供了 Lua 和 Rust 两种配置方式（内置 master-stack/spiral/dwindle/fair 等布局），在概念上高度致敬 AwesomeWM。
 - **Way Cooler**（[way-cooler/way-cooler](https://github.com/way-cooler/way-cooler)，2139★，2019 归档）：用 Rust 编写的 Wayland 合成器，深受 AwesomeWM 和 i3 的启发。使用 Lua 进行配置，并像 AwesomeWM 一样，将扩展实现为独立的客户端程序，通过 D-Bus 进行通信。该项目目前已归档，但其设计思路仍有参考价值。
-- **CwC**（[Cudiph/cwcwm](https://github.com/Cudiph/cwcwm)，186★，活跃 2026-09）：基于 wlroots 的可扩展 Wayland 合成器，深受 AwesomeWM 影响，同样使用 Lua 配置和 C 插件扩展。项目文档特别提到，其源自 AwesomeWM 的 API 保证不会轻易破坏，以维持配置的稳定性。
+- **CwC**（[Cudiph/cwcwm](https://github.com/Cudiph/cwcwm)，186★，活跃 2026-09）：基于 wlroots 的可扩展 Wayland 合成器，深受 AwesomeWM 影响，同样使用 Lua 配置和 C 插件扩展。项目文档特别提到，其源自 AwesomeWM 的 API 保证不会轻易破坏，以维持配置的稳定性（基于 wlroots 0.20，AUR 已有 cwc 包）。
 
 #### 2.2 受启发的独立项目（借鉴 Lua 可编程配置或标签式工作流，但并非直接移植）
 
-- **Swaysome**（[hyask/swaysome](https://gitlab.com/hyask/swaysome)，GitLab 托管，24★，2026-07 活跃）：定位不是合成器，而是帮助 Sway 用户配置出"更像 AwesomeWM"工作流的工具，主要复现其标签式工作区体验（workspace groups）。
+- **Swaysome**（[hyask/swaysome](https://gitlab.com/hyask/swaysome)，GitLab 托管，24★，2026-07 活跃）：定位不是合成器，而是帮助 Sway 用户配置出"更像 AwesomeWM"工作流的工具，主要复现其标签式工作区体验（workspace groups）。Rust 实现（crates.io 2.3.2），AUR/Void/Debian 有包。
 - **wmoon**（[Natchuz/wmoon](https://github.com/Natchuz/wmoon)，6★，2022 归档）：用 Zig 编写的 Wayland 窗口管理器，自称"在精神上遵循 AwesomeWM"，并使用 Moonscript 进行完全的自定义配置。
 - **PyleWM**（[Lucas7211/PyleWM](https://github.com/Lucas7211/PyleWM)，33★，2024-10 最后推送）：在 Windows 平台上实现的平铺窗口管理工具，灵感来源于 Linux 下的 i3 和 AwesomeWM。
 
 #### 2.3 总结
 
 这些项目构成了一个清晰的谱系：SomeWM 和 Way Cooler 是直接的"继承人"，Pinnacle 和 CwC 是在新生态下的"转世"，而 Swaysome 和 wmoon 则是受到其工作流启发的"远亲"。它们共同证明了 AwesomeWM "配置即代码"和"标签式管理"理念的持久影响力。
-
-> 星标/活跃度核查（2026-09-23，GitHub/GitLab API 实拉）：SomeWM [trip-zip/somewm](https://github.com/trip-zip/somewm) 388★（基于 wlroots 0.19，1.4.0 稳定版，AUR 有包，支持 `awesome.restart()` 热重载）；Pinnacle [pinnacle-comp/pinnacle](https://github.com/pinnacle-comp/pinnacle) 638★（Smithay + Lua/Rust 双配置，tag 系统 + master-stack/spiral/dwindle/fair 布局）；Way Cooler [way-cooler/way-cooler](https://github.com/way-cooler/way-cooler) 2139★（2019-12 最后推送、已归档）；CwC [Cudiph/cwcwm](https://github.com/Cudiph/cwcwm) 186★（wlroots 0.20，AUR 有 cwc 包）；Swaysome [hyask/swaysome](https://gitlab.com/hyask/swaysome) 24★（GitLab 托管，Rust，crates.io 2.3.2，AUR/Void/Debian 有包）；wmoon [Natchuz/wmoon](https://github.com/Natchuz/wmoon) 6★（2022-04 已归档）；PyleWM [Lucas7211/PyleWM](https://github.com/Lucas7211/PyleWM) 33★（2024-10 最后推送）。谱系整体活跃度一般，需以仓库现状为准。
