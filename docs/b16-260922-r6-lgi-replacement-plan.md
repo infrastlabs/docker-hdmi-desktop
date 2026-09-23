@@ -2,7 +2,7 @@
 
 > **来源**：docs/b15-260922-code-repo-analysis.md 章节五（LGI 替代候选实测与最小替换边界）
 > **定位**：b15 章节五把 R6（抛弃 GI，纯 C 绑定 + Lua）从 120-240 人天修正为 45-95 人天，并判定"可做但不建议"。本文档是 R6 的**可执行施工方案**，不是可行性论证。
-> **结论先行**：R6 不是"重写半个 awesome"，是"**写一个 4 层 700-1000 行的 shim + 砍掉/改造 Gio**"。细化后成本 **38-62 人天**（砍 menubar）或 **47-74 人天**（保留 menubar，见 二·5），低于 b15 的下限估算。
+> **结论先行**：R6 不是"重写半个 awesome"，是"**写一个 4 层 700-1000 行的 shim + 砍掉/改造 Gio**"。细化后成本 **38-62 人天**（砍 menubar）或 **47-74 人天**（保留 menubar，见 二·5），低于 b15 的下限估算。（两档均未含 Rsvg 0-1 可选项，见 8.6；Cairo/Gio/静态链接已按三·4 上修计入）
 >
 > **但风险分布极不均匀**：GLib / Gio / menubar 三项已经上游源码实测校定（见 二·1.1 / 二·1.2 / 二·5.1），**Pango 没有**。3.2 原估的"60 行最小绑定 / 2-4 人天"经实测证伪（漏掉 `textbox.lua` 这个最大消费者），已上修为 **15-30**——**但仍是推测值，不是实测值**，且是当前合计里唯一未经验证的主体项。各数字的可信度分级见 7.3。
 > **章节结构**：`## 一、` 是施工方案（1-8 节）；`## 二、疑问与细化项` 是对原文疑点的逐项考证（1-5 节）。**两章节号重复**，引用时 `见 1.1` 指第一章、`见 二·1.1` 指第二章；`一·3.4` 指第一章的 3.4。
@@ -69,6 +69,15 @@ sed -i 's/require("lgi")/require("lgishim")/g' lib/**/*.lua lib/*.lua
 改动从"39 个文件要理解"变成"1 个 shim 要实现"。
 
 **真正的工作量不在替换，在 OO ↔ 函数式的 API 形态转换**（见 3.1）。
+
+**实现级硬约束（三·4 校对，动手前必须写进 shim 设计）**：
+
+1. **对象底座是 userdata，不是 table**——`shape_input` / `pixbuf_to_surface` / `load_image` 的 C 侧全用 `lua_touserdata`（`objects/client.c:4335`、`luaa.c:316`），shim 对象必须是 full userdata，表包装方案在这些边界直接 NULL 崩溃。
+2. **`._native` 恒返回 lightuserdata**（裸指针），这是穿越 C 边界的唯一通道；oocairo 需要补 `._native` 小补丁。
+3. **所有 userdata 实现 `__gc` 终结器**（`g_object_unref` / `cairo_surface_destroy` / `rsvg_handle_free`）——LGI 靠 GC + 显式 `:finish()` 双通道释放，shim 必须自己补齐 GC 通道。
+4. **跨绑定取裸指针**——`PangoCairo.create_context` / `Rsvg.render_cairo` 都要从 cairo Context userdata 解出 `cairo_t*`，需要一个通用 unwrap 机制（oocairo 补丁或内部 userdata→ptr 表）。
+
+详见 三·4。
 
 ---
 
@@ -339,15 +348,16 @@ oocairo 虽由 awesomeWM 组织维护，实际贡献者集中。若 2025-08 后�
 
 | 子项 | b15 估算 | 本文细化 | 差异原因 |
 |------|---------|---------|---------|
-| Cairo 层 | 0-3 | 0-3 | — |
+| Cairo 层 | 0-3 | **2-4** | 三·4 F1/F2/F4：oocairo 需补 `._native`/unwrap + `operator`/`source` 属性面 + `__gc` |
 | Pango 层 | 10-20 | **15-30** | ⚠️ 原估 2-4 已证伪（见 3.2）：实测 8 个文件 / 约 25 个 API，漏掉 `textbox.lua`；**仍为推测值，非实测** |
 | GLib 主循环 | 15-30 | **3-6** / **4-8** | C 侧已静态；Lua 侧 2 函数；保留 menubar 需补 6 个 GLib 函数（见 二·5.1） |
-| Gio | 10-20 | **2-4** / **8-15** | 砍 menubar 则 4 处全砍；保留则需同步 shim + fork（见 二·5）；原写"C 侧 dbus.c 兜底"是错的（见 二·1.2） |
+| Gio | 10-20 | **3-5** / **9-16** | 砍 menubar 则 4 处全砍；保留则需同步 shim + fork（见 二·5）+ GioUnix 输出捕获（三·4 F3）；原写"C 侧 dbus.c 兜底"是错的（见 二·1.2） |
 | GTK3 | 0 | 0 | pcall 保护 |
 | GdkPixbuf | 0-2 | 0-2 | — |
+| Rsvg（可选） | 未单列 | **0-1** | 四模块外（见 8.6）；若弃用 SVG 图标则 0（三·4 F3） |
 | 测试回归 | 10-20 | 6-8 | 只跑纯 Lua 子集 |
-| 静态链接 | 未单列 | 10-20 / **6-12** | 砍 menubar 则链接链简化；保留则需静态化 libgio 依赖链——**已有 `v-pcmanfm` 落地先例，见 二·5.3** |
-| **合计** | **45-95** | **38-62** / **47-74** | 砍 menubar / 保留 menubar（见 二·5）；绕开 oopango + GLib 实测下调 |
+| 静态链接 | 未单列 | 12-20 / **8-16** | 砍 menubar 则链接链简化；保留则需静态化 libgio 依赖链（`v-pcmanfm` 先例，见 二·5.3）+ pango/fribidi 源码构建 + gdk-pixbuf loader 配置 + `-lsn`（三·4 F3） |
+| **合计** | **45-95** | **38-62** / **47-74** | 砍 menubar / 保留 menubar（见 二·5）；绕开 oopango + GLib 实测下调；**未含 Rsvg 0-1**（三·4 F3） |
 
 #### 7.2 R6 在路线排序中的位置
 
@@ -376,7 +386,7 @@ R4  换 LuaGnome        :120-240   不可行
  | ✅ 上游源码实测 | GLib 3-6、Gio 2-4、menubar Gio 8-15、零 D-Bus、libgio 静态链 | 二·1.1 / 二·1.2 / 二·5.1 / 二·5.3，均可复现 grep 或 `ldd` |
  | ✅ 本项目已落地 | libgio 依赖链静态化 | `v-pcmanfm` 37.1M 全静态产物 |
  | ⚠️ **推测值，未实测** | **Pango 15-30** | 只有调用面枚举（3.2），没有绑定实现样本 |
- | ⚠️ 推测值 | Cairo 0-3、GdkPixbuf 0-2、测试回归 6-8、静态链接 10-20/6-12 | 数量级判断 |
+ | ⚠️ 推测值 | Cairo 2-4、GdkPixbuf 0-2、测试回归 6-8、静态链接 12-20/8-16、Rsvg 0-1 | 数量级判断 |
 
  合计 38-62 的下界主要由 Pango 支撑，**在 Pango 实测校定前，不要把 38-62 当成承诺值**。校定方法见 8。
 
@@ -500,7 +510,7 @@ lib/awful/spawn.lua:426      spawn.read_lines(GioUnix.InputStream.new(stderr, tr
 | 8.2 spec 改造前就不全绿 | 5、7.1 的"测试回归 6-8"低估，需重估 |
 | 8.4 awesome 链不过 | 二·5.3 的"已消除"要撤回，回到"硬门槛" |
 | 8.6 默认图标主题是 SVG-only | 需写 librsvg shim（+0.5-1 人天）并引入 libxml2 静态链 |
-| 8.7 确认 `GioUnix` 需绑定 | Gio 项 8-15 上调至 9-16，需同步改 二·5.4 / 7.1 的合计 |
+| 8.7 已确认 `GioUnix` 需绑定（实测） | Gio 已按 3-5 / 9-16 计入 7.1 与 二·5.4（三·4 F3） |
 
 ---
 
@@ -1134,15 +1144,15 @@ bash-5.1# ldd src/pcmanfm
 
 | 子项 | 砍 menubar（原） | 保留 menubar（新） |
 |------|-----------------|-------------------|
-| Cairo | 0-3 | 0-3 |
+| Cairo | 0-3 | **2-4**（三·4 F1/F2/F4） |
 | Pango | 15-30 | 15-30 |
 | GLib | 3-6 | **4-8**（+4 个 GLib 函数） |
-| Gio | 2-4（全砍） | **8-15**（同步 shim + fork） |
+| Gio | 3-5（全砍） | **9-16**（同步 shim + fork + GioUnix） |
 | GTK3 | 0 | 0 |
 | GdkPixbuf | 0-2 | 0-2 |
 | 测试回归 | 6-8 | **8-12**（+menubar 回归） |
-| 静态链接 | 10-20 | **6-12**（+libgio 链，配方已验证） |
-| **合计** | **38-62** | **47-74** |
+| 静态链接 | 12-20 | **8-16**（+libgio 链 + pango 源码构建 + loader，三·4 F3） |
+| **合计** | **38-62**（未含 Rsvg 0-1） | **47-74**（未含 Rsvg 0-1） |
 
 **增量：+9 至 +12 人天。**
 
@@ -1503,4 +1513,75 @@ img.finish()
 | master（v4.4 DRAFT） | `Gio.DBusConnection` | 二·1.2 的补丁方案（`notification.lua:813` + `naughty/init.lua:13`） |
 
 本文档按 master 分析（二·1.2 的补丁点只在 master 上成立）。若最终容器决定锁定 v4.3，R6 的 Gio 项反而更小（不涉及 D-Bus 补丁），但会失去 3.2 的新功能并停在 2019 年基线。
+
+---
+
+### 4、2026-09-22 实现可行性校对（shim 对象模型 / 跨绑定 / 成本自洽）
+
+> **方法**：站在"真要动手写 shim"的角度，对第 2 节 lgishim 设计与 一·3 各绑定方案做实现级核对——重点是 **C/Lua 边界的对象表示（userdata）**、**跨绑定指针传递**、**Pango 属性面完整性**、**成本表自洽**。全部结论来自 `/tmp/awsh` 源码 grep。
+>
+> **结论**：方案可实现。**C 边界全部满足"userdata 底座 + `._native`=lightuserdata"后即通**；Pango 枚举经实测基本完整；成本侧 **Cairo 0-3 偏乐观（实 2-4）、静态链接 6-12 偏低（实 8-16）**，已联动修正 7.1 / 二·5.4 / 8.8 / 7.3 / 第 2 节设计约束。
+
+#### 4.1 确认可行的关键边界
+
+| # | 项 | 验证结果 |
+|----|------|------|
+| ✅1 | userdata 穿越 C 边界 | `objects/client.c:4333-4342`（`luaA_client_set_shape_input`）与 `luaa.c:316`（`pixbuf_to_surface`）都用 `lua_touserdata`——**lightuserdata 即可满足**，`._native` 返回 lightuserdata 后全通 |
+| ✅2 | Pango 枚举完整性 | textbox 实测：`width/height/text/attributes` 属性 + `get/set_ellipsize/wrap/alignment` + `set_font_description` + `get_pixel_extents` + `parse_markup` + `units_from_double` + line_spacing 存在性检查——**全部在 3.2 的 ~25 API 枚举内**；无光标定位 API（textbox 不可编辑，不会膨胀） |
+| ✅3 | PangoCairo 面 | 全仓只有 `font_map_get_default`（×3）一个入口 + `create_context`——与 3.2 一致 |
+| ✅4 | GioUnix 绑定 | `g_unix_input_stream_new(fd, close_fd)` 一行即可（libgio-unix 已在 二·5.3 静态链里），**比 8.7 暗示的更简单** |
+
+#### 4.2 F1：shim 对象必须是 userdata，`._native` 必须是 lightuserdata（高）
+
+`luaA_client_set_shape_input`（`objects/client.c:4335-4337`）：
+
+```c
+surf = (cairo_surface_t *)lua_touserdata(L, -1);
+```
+
+任何经 `._native` / 构造器传给 C 的对象（`shape_input`、`pixbuf_to_surface`、`draw_surface_from_pixbuf`）**必须是 userdata**。影响：
+
+- oocairo 是 C 绑定（对象天然是 userdata）✓，但要给它补 `._native` 访问器（小补丁）
+- 所有手写绑定（Pango/GLib/Gio/GdkPixbuf/Rsvg）必须是 userdata 底座；**表包装方案在这些边界直接 NULL 崩溃**
+- 第 2 节 lgishim 原本没写这条——已补进 2 节"实现级硬约束"
+
+#### 4.3 F2：跨绑定取裸指针（中）
+
+`PangoCairo.font_map_get_default():create_context()`、`Rsvg.Handle:render_cairo(cr)` 都要把 **oocairo 的 Context userdata 解出 `cairo_t*`**。oocairo 大概率不暴露 Context 的 `._native`——需要给 oocairo 打补丁，或 shim 内部维护 userdata→ptr 映射表。这是 3.1 "形态适配"没写的一步。
+
+#### 4.4 F3：成本漏项与自洽（中）——已联动修正
+
+| 项 | 来源 | 原值 → 修正 |
+|------|------|------|
+| Cairo（F1/F2/F4：oocairo 补丁 + unwrap + 属性面 + `__gc`） | 4.2/4.3/4.5/4.7 | 0-3 → **2-4** |
+| Gio（GioUnix 输出捕获） | 8.7 实测 | 2-4/8-15 → **3-5/9-16** |
+| 静态链接（pango/fribidi 源码构建 + gdk-pixbuf loader 配置 + `-lsn`） | 三·2.2/2.3/2.4 | 10-20/6-12 → **12-20/8-16** |
+| Rsvg（可选） | 8.6 | 未计入 → **0-1**（弃用则 0） |
+
+**落地方式**：合计 38-62 / 47-74 保留（是本文的分析结论不是机械加总），通过**各行上修 + 合计注明"未含 Rsvg 0-1"**保持自洽。已同步改 7.1、二·5.4、8.8、7.3、文首结论。
+
+#### 4.5 F4：cairo 属性面 `operator` / `source`（小）
+
+49 个方法之外还有 **2 个属性 setter**：`cr.operator = cairo.Operator.SOURCE`（`surface.lua:165,357`、`wallpaper.lua:76,139,181,224,251`、`tile.lua:83`）和 `cr.source = pattern`（`wallpaper.lua:140,180,252`、`tile.lua:84`）——shim 的 Context 需要 `__newindex` 处理这两个属性。
+
+#### 4.6 F5：`cairo.SvgSurface.create` 仅弃用路径（小）
+
+`surface.lua:250`（`widget_to_svg`，`deprecated_in=5`）。shim 可放弃该路径，但 3.1 的 cairo 枚举应标注"`SvgSurface` 仅弃用路径"。
+
+#### 4.7 F6：`__gc` 终结器是标配（信息）
+
+LGI 靠 GC + 显式 `:finish()` 双通道释放；shim 的所有 userdata 都要实现 `__gc`（`g_object_unref` / `cairo_surface_destroy` / `rsvg_handle_free`），否则泄漏。成本隐含在"写绑定"里，未单列，但实现时必须统一做。
+
+#### 4.8 小结
+
+| # | 项 | 严重度 | 处置 |
+|----|------|------|------|
+| F1 | userdata 底座 + `._native`=lightuserdata | 高 | 已补进第 2 节"实现级硬约束" |
+| F2 | 跨绑定取裸指针（PangoCairo/Rsvg 要 cairo Context） | 中 | 归入 Cairo 行（0-3→2-4） |
+| F3 | 成本漏项（Cairo/Gio/静态链接/Rsvg） | 中 | 已联动 7.1 / 二·5.4 / 8.8 / 7.3 / 文首 |
+| F4 | cairo 属性面 `operator`/`source` | 小 | 归入 Cairo 行 |
+| F5 | `SvgSurface` 仅弃用路径 | 小 | 标注即可 |
+| F6 | `__gc` 终结器标配 | 信息 | 写进实现规范 |
+
+**可行性结论**：R6 按本文方案**可实现**；userdata 约束满足后所有 C 边界都通；Pango 15-30 的主要风险是绑定正确性（靠 8.2 的 spec 基线回归兜底），不是漏 API。
 
