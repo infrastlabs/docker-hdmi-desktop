@@ -427,3 +427,42 @@ Bastien Dejean 创建；自身不处理键盘/鼠标输入，热键完全委托 
 - [Retrocomputing SE: Windows 1.0 平铺是法律还是技术原因](https://retrocomputing.stackexchange.com/questions/32511)
 - Apple Computer, Inc. v. Microsoft Corp.（1985 授权协议 + 1988 起诉背景，法院文件）
 - Hyprland 官方 Wiki（hyprlang 配置语言与 C++ 插件 API）
+
+## 十四、AwesomeWM 评价与设计影响谱系（2026-09-23 补充）
+
+### 1、AwesomeWM：平铺 WM 里少有的"框架型常青树"
+
+awe 仓库代码很简洁，仓库提交管理得很好，而且是棵常青树，非常优秀。
+
+确实，AwesomeWM（awe）算是平铺窗口管理器里少有的"框架型常青树"。它的优秀不只在于功能，而在于架构克制、可编程性强、社区文化独特。几点很突出：
+
+- **核心与配置分离得干净**：C 核心负责 X11 交互、窗口管理和绘图原语，Lua 层负责策略与界面。gears、awful、wibox、naughty 分层清晰，既不像 dwm 那样一切硬编码，也不像某些 WM 把配置和核心搅在一起。
+- **提交与文档管理成熟**：早期 Julien Danjou 打下底子，后来 psychon、elv1313 等人持续重构。发布 tag、CHANGELOG、API 文档、迁移指南都比较完整，commit 粒度也普遍清楚。尤其是 awful 的多次重构，能看出对 API 长期演进的克制。
+- **"配置即代码"的生命力**：Lua 嵌入让用户能直接写逻辑，而不是只填配置项。这让它从 WM 变成了一个可编程桌面框架。社区大量 dotfiles、模块、插件反过来又延长了它的寿命。
+- **常青的原因**：X11 生态稳定、Lua 轻量、依赖少、发行版长期打包，加上 Awesome 的 API 兼容策略，很多十年前的配置稍作修改仍能跑。
+- **客观挑战**：Wayland 支持缺失是最大隐忧，4.3 之后稳定发布节奏也慢了下来。但它作为 X11 时代的"可编程 WM 框架"，设计影响了很多后来的项目。
+
+所以它更像一棵"慢生长的树"：不追热点，但根扎得深。menubar、wibox、wibar 这些命名方言，其实也是这种身份的体现——它不是在做某个桌面环境的面板，而是在提供一套搭建桌面的原语。十几年后还有人在写 rc.lua 和 startup.sh，本身就是最好的证明。
+
+### 2、设计影响：为 Wayland 移植重构 + 启发可编程 WM 两个方向
+
+设计影响主要体现在两个方向：为 Wayland 生态提供"Awesome 式"的移植与重构，以及在架构上启发了一批可编程窗口管理器。
+
+#### 2.1 直接衍生与重实现（以 AwesomeWM 的代码或 API 为蓝本，力求在 Wayland 下复现其体验）
+
+- **SomeWM**：将 AwesomeWM 移植到 Wayland 的项目，目标是实现 100% 的 Lua API 兼容，让用户可以直接沿用现有的 rc.lua 配置和组件。项目支持 naughty 通知库和 ruled.notification 规则，并在 AUR、Debian/Ubuntu 和 Fedora 等仓库有打包。
+- **Pinnacle**：基于 Rust 和 Smithay 构建的 Wayland 合成器，明确以"为 Wayland 打造 AwesomeWM"为目标。支持标签系统、动态平铺和自定义布局，并提供了 Lua 和 Rust 两种配置方式，在概念上高度致敬 AwesomeWM。
+- **Way Cooler**：用 Rust 编写的 Wayland 合成器，深受 AwesomeWM 和 i3 的启发。使用 Lua 进行配置，并像 AwesomeWM 一样，将扩展实现为独立的客户端程序，通过 D-Bus 进行通信。该项目目前已归档，但其设计思路仍有参考价值。
+- **CwC**：基于 wlroots 的可扩展 Wayland 合成器，深受 AwesomeWM 影响，同样使用 Lua 配置和 C 插件扩展。项目文档特别提到，其源自 AwesomeWM 的 API 保证不会轻易破坏，以维持配置的稳定性。
+
+#### 2.2 受启发的独立项目（借鉴 Lua 可编程配置或标签式工作流，但并非直接移植）
+
+- **Swaysome**：定位不是合成器，而是帮助 Sway 用户配置出"更像 AwesomeWM"工作流的工具，主要复现其标签式工作区体验（workspace groups）。
+- **wmoon**：用 Zig 编写的 Wayland 窗口管理器，自称"在精神上遵循 AwesomeWM"，并使用 Moonscript 进行完全的自定义配置。
+- **PyleWM**：在 Windows 平台上实现的平铺窗口管理工具，灵感来源于 Linux 下的 i3 和 AwesomeWM。
+
+#### 2.3 总结
+
+这些项目构成了一个清晰的谱系：SomeWM 和 Way Cooler 是直接的"继承人"，Pinnacle 和 CwC 是在新生态下的"转世"，而 Swaysome 和 wmoon 则是受到其工作流启发的"远亲"。它们共同证明了 AwesomeWM "配置即代码"和"标签式管理"理念的持久影响力。
+
+> 核查（2026-09-23）：SomeWM（trip-zip/somewm，基于 wlroots 0.19，1.4.0 稳定版，AUR 有包，支持 `awesome.restart()` 热重载）、Pinnacle（pinnacle-comp/pinnacle，Smithay + Lua/Rust 双配置，含 tag 系统与内置 master-stack/spiral/dwindle/fair 等布局）、Swaysome（gitlab.com/hyask/swaysome，Rust，crates.io 2.3.2，AUR/Void/Debian 有包）均属实；wmoon（Natchuz/wmoon，Zig，6★）2022-04 后已 archived，Way Cooler 亦已归档——"谱系"整体活跃度不高，需以仓库现状为准。
