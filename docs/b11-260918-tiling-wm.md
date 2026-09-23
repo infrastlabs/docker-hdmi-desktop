@@ -459,7 +459,7 @@ awe 仓库代码很简洁，仓库提交管理得很好，而且是棵常青树�
 
 - **Swaysome**（[hyask/swaysome](https://gitlab.com/hyask/swaysome)，GitLab 托管，24★，2026-07 活跃）：定位不是合成器，而是帮助 Sway 用户配置出"更像 AwesomeWM"工作流的工具，主要复现其标签式工作区体验（workspace groups）。Rust 实现（crates.io 2.3.2），AUR/Void/Debian 有包。
 - **wmoon**（[Natchuz/wmoon](https://github.com/Natchuz/wmoon)，6★，2022 归档）：用 Zig 编写的 Wayland 窗口管理器，自称"在精神上遵循 AwesomeWM"，并使用 Moonscript 进行完全的自定义配置。
-- **PyleWM**（[Lucas7211/PyleWM](https://github.com/Lucas7211/PyleWM)，33★，2024-10 最后推送）：在 Windows 平台上实现的平铺窗口管理工具，灵感来源于 Linux 下的 i3 和 AwesomeWM。
+- **PyleWM**（[Lucas7211/PyleWM](https://github.com/Lucas7211/PyleWM)，33★，2024-10 最后推送）：**Python** 编写的 Windows 平铺窗口管理工具，灵感来源于 i3 和 AwesomeWM；确认可在 Windows 运行（`pip install pylewm` + `python -m pylewm`，或 Releases 自包含二进制；配置存于 `%APPDATA%\PyleWM`）。
 
 #### 2.3 总结
 
