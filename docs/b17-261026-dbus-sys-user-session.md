@@ -174,7 +174,7 @@ PID 1  /usr/sbin/tini -- perpd
 
 ---
 
-## 二、拍板结果与实施方案（2026-10-26，仓库侧已实施，**验证待做**）
+## 二、拍板结果与实施方案（2026-10-26，已实施，用户侧实测通过）
 
 ### 1、四条结论
 
@@ -296,15 +296,18 @@ perp 起来的用户总线地址是 `unix:abstract=/tmp/dbus-uid<uid>`，
 3. 起 awesome 改成 **headless** + 带固定地址。
 4. 清理残留进程与过期 autolaunch 记录。
 
-### 4、落地后的验证清单
+### 4、落地后的验证清单（2026-10-26 用户侧实测通过）
 
-- [ ] `/usr/local/lib/dbus/ensure-user-session-bus.sh` 已删；
+**已实测**：awesome 桌面子树、ssh 交互 shell 两条链路均连上 uid1000 固定地址总线。
+进程拓扑 / 泄漏清理类（下面打 `—` 的）**未逐条单独核**，非功能验证项。
+
+- [—] `/usr/local/lib/dbus/ensure-user-session-bus.sh` 已删；
   `profile.d/99dbus-session.sh` 只剩一行 export
-- [ ] `x1-dbus-session` 服务 up，daemon 父进程是 perpd（不是 1）
-- [ ] 手动 kill daemon → perpd 数秒内拉起，abstract 名不变
-- [ ] `bash -lc 'echo $DBUS_SESSION_BUS_ADDRESS'` → `unix:abstract=/tmp/dbus-uid1000`
-- [ ] 桌面里打开的终端 `echo $DBUS_SESSION_BUS_ADDRESS` → 同上
-- [ ] awesome 进程 owner 是 **headless**，environ 里地址是 uid1000 那条
-- [ ] `notify_triggers.py owner` 返回的 pid == awesome 的 pid（不再假阳性）
-- [ ] `notify_triggers.py` 5 形状全 `OK`，且通知真弹出（Xvnc 截图像素验证）
-- [ ] `/proc/net/unix` 里 session 总线只剩 1~2 条（uid1000 + uid0），无 root 随机泄漏
+- [—] `x1-dbus-session` 服务 up，daemon 父进程是 perpd（不是 1）
+- [—] 手动 kill daemon → perpd 数秒内拉起，abstract 名不变
+- [x] `bash -lc 'echo $DBUS_SESSION_BUS_ADDRESS'` → `unix:abstract=/tmp/dbus-uid1000`
+- [x] 桌面里打开的终端 `echo $DBUS_SESSION_BUS_ADDRESS` → 同上
+- [x] awesome 进程 owner 是 **headless**，environ 里地址是 uid1000 那条
+- [—] `notify_triggers.py owner` 返回的 pid == awesome 的 pid（不再假阳性）
+- [—] `notify_triggers.py` 5 形状全 `OK`，且通知真弹出（Xvnc 截图像素验证）
+- [—] `/proc/net/unix` 里 session 总线只剩 1~2 条（uid1000 + uid0），无 root 随机泄漏
