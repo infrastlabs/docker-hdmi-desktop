@@ -125,7 +125,8 @@ Hidden=false
     rm -rf /etc/perp/$xn-* #drop old
 
     # PERP service generation
-    envcmd="export DISPLAY=:$N; export HOME=$HOME"
+    busaddr="unix:abstract=/tmp/dbus-uid$(id -u headless)" #用户 session 总线固定地址
+    envcmd="export DISPLAY=:$N; export HOME=$HOME; export DBUS_SESSION_BUS_ADDRESS=$busaddr"
     decmd="export USER=headless; export SHELL=/bin/bash; export TERM=xterm"
 
     if [ "true" == "$HEADLESS" ]; then
@@ -136,17 +137,19 @@ Hidden=false
     fi
     addPerpService "$xn" "chansrv" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh chansrv $N\""
     addPerpService "$xn" "dbus" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh dbus $N\""
+    addPerpService "$xn" "dbus-session" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh dbus-session $N\""
     addPerpService "$xn" "udev" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh udev $N\""
     addPerpService "$xn" "pulse" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh pulse $N\""
     # addPerpService "$xn" "opencode" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh opencode $N\""
     # addPerpService "$xn" "cloudcli" "exec su-exec headless bash -c \"$envcmd; exec /xvnc2.sh cloudcli $N\""
     addPerpService "$xn" "chvt" "exec su-exec root bash -c \"while true; do sleep 1; bash /usr/local/bin/f12_to_tty1.sh; done\""
 
-    # DBUS
-    # ~/.xinitrc
-    #   exec dbus-launch --exit-with-session openbox-session
+    # DBUS: session 总线由 xN-dbus-session 服务(perpd 保活)提供，DE 不再 dbus-launch；
+    # 登录 shell(ssh) 从 /etc/profile.d/ 拿同一个固定地址
     START_SESSION2=$START_SESSION
-    test "Xopenbox-session" == "X$START_SESSION2" && START_SESSION2="dbus-launch --exit-with-session openbox-session"
+    cat > /etc/profile.d/99dbus-session.sh <<EOF
+export DBUS_SESSION_BUS_ADDRESS="\${DBUS_SESSION_BUS_ADDRESS:-$busaddr}"
+EOF
     #
     # de: su-exec headless bash -c "xxx"
     dest=/etc/perp/$xn-de; mkdir -p $dest

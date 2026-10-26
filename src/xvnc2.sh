@@ -86,6 +86,16 @@ dbus)
     # xfce4-power-manager &
     # NetworkManager &
     ;;
+dbus-session)
+    # 用户 session 总线，perpd 保活。两条实测约束：
+    #   1. 只绑 abstract transport —— 写 "unix:abstract=A;unix:path=B" 双 transport，
+    #      本容器 dbus 会起进程但一个都不绑（/etc/dbus-1/session.conf 不存在）。
+    #   2. 必须 --nosyslog —— 容器无 /dev/log，--syslog-only 会让 daemon 卡在事件循环不监听。
+    # --nofork：perpd 必须是它的父进程，挂了才 respawn。地址按 uid 派生常量，便于所有人直连。
+    U=$(id -u headless)
+    exec su-exec headless dbus-daemon --session --nosyslog --nofork \
+        --address="unix:abstract=/tmp/dbus-uid$U"
+    ;;
 udev)
     # udev: for pulseaudio, NetworkManager
     sudo mkdir -p /run/udev
