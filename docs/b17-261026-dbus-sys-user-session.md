@@ -162,15 +162,15 @@ PID 1  /usr/sbin/tini -- perpd
    关键：`--nofork`、不用 pidfile、不用 `setsid &`，perpd 才能是它的父进程。
    同时建议清掉 `dbus-launch --exit-with-session`（`entry-x11base.sh:149`）。
 
-**配套两个坑，先记下**：
+**配套两件事，一并做**：
 
-- **owner 必须唯一**：现在的 `/usr/local/lib/dbus/ensure-user-session-bus.sh` 是
-  「不在就自己 spawn」。如果 perpd 先抢到 abstract 名、它再 spawn，bind 失败 → daemon
-  立刻退出 → **perpd 无限 respawn 自转**。选 perpd 做 owner 时，
-  `ensure-*` 要降级成「**等名字出现 + export**」，不再 spawn。
-- **这两个文件不在本仓**：`/usr/local/lib/dbus/ensure-user-session-bus.sh` 和
-  `/etc/profile.d/99dbus-session.sh` 目前只装在这台容器的 rootfs 里，
-  **重建镜像就丢**；已确认**不纳入本仓**（见 二.2.4），风险接受。
+- **owner 必须唯一**：`/usr/local/lib/dbus/ensure-user-session-bus.sh` 现在是
+  「不在就自己 spawn」。perpd 抢了 abstract 名后它再 spawn → bind 失败 → daemon
+  立刻退 → **perpd 无限 respawn 自转**。所以它**不是「可以删」，是必须删**，
+  起 daemon 这活全归 perp。
+- **两个脚本合成一行**：`ensure-*` 的逻辑（地址常量、`--nosyslog`、abstract、判活）
+  搬进 `xvnc2.sh` 的 `dbus-session` 分支后，`/etc/profile.d/99dbus-session.sh`
+  就只剩 export 一行，`ensure-*` 文件删掉（见 二.2.4）。
 
 ---
 
@@ -183,7 +183,8 @@ PID 1  /usr/sbin/tini -- perpd
 | 1 | awesome 用哪个 uid 起 | **headless**（连 uid1000 那条固定地址总线） |
 | 2 | 非登录 shell 的地址放哪 | **不塞 `~/.bashrc`**；改由 **entry / perp 任务脚本幂等注入**（见 2.2） |
 | 3 | 动 `src/xvnc2.sh` + `src/entry-x11base.sh` 加 perp 保活 | **可以动** |
-| 4 | `ensure-user-session-bus.sh` + `99dbus-session.sh` 纳入本仓 | **不纳入**（留在容器 rootfs，见 2.4） |
+| 4 | 两个 rootfs 脚本怎么处理 | **`ensure-*` 删掉**（逻辑进 `xvnc2.sh`）；
+  `99dbus-session.sh` 留仓外、**缩成一行 export**（见 2.4） |
 
 ### 2、逐条展开
 
@@ -240,29 +241,56 @@ autostart `.desktop` 都是 entry 直接写的）：
    `x1-de` 之前（`x1-dbus-session` < `x1-de`）。⚠️ perpd 的启动顺序**不保证等于
    字典序**，需实测；不放心就让 DE 侧先等总线就绪。
 3. 同时删掉 `dbus-launch --exit-with-session`（否则一条新总线 + 一条死总线并存）。
-4. **owner 必须唯一（关键）**：`ensure-user-session-bus.sh` 现在是「不在就自己
-   spawn」。perpd 起了之后它再 spawn 会 bind 失败 → daemon 立刻退出 → **perpd 无限
-   respawn 自转**。落地时必须把它的 spawn 逻辑拿掉，降级成「**等名字出现 + export**」。
+4. **owner 必须唯一（关键）**：**删掉** `/usr/local/lib/dbus/ensure-user-session-bus.sh`
+   （不是降级）。它现在是「不在就自己 spawn」，perpd 起了之后它再 spawn 会 bind 失败
+   → daemon 立刻退 → **perpd 无限 respawn 自转**。起 daemon 这活全归 perp。
 5. 顺手清理：`dbus-launch --autolaunch` 残留进程、`~/.dbus/session-bus/` 里的过期
    记录、21 条 root 随机 session daemon。
 
-#### 2.4、不纳入本仓（已接受）
+#### 2.4、两个 rootfs 脚本：合成一行，`ensure-*` 删掉
 
-`/usr/local/lib/dbus/ensure-user-session-bus.sh` 和 `/etc/profile.d/99dbus-session.sh`
-**不进 `src/`、不由 entry 安装**，继续留在容器 rootfs 手工维护。
+两个脚本串起来就干一件事：**让 ssh 进来能连上 session 总线**。
+`ensure-*` 起 daemon，`profile.d` 那份 export 地址。
 
-接受的后果：
+可以合成一个，而且更彻底——**合成一行，`ensure-*` 直接删掉**。
 
-- 镜像重建后这两个文件**会丢**，需手工重装；`/etc/profile.d/` 那条一丢，
-  **登录 shell 就再也拿不到地址**了。
-- 与 2.3 的冲突点仍在：perp 保活要改那个**不在版本管理里**的文件（2.3 第 4 条），
-  改完镜像一重建就回退成 spawn 版本 → perpd 自转。风险**已知且接受**；
-  若之后不想手工维护，再回头考虑纳入本仓。
+依据：同一个 abstract 名不可能有两个 daemon 绑。
+perp 起来的用户总线地址是 `unix:abstract=/tmp/dbus-uid<uid>`，
+`ensure-*` 要起的也是**同一条**。所以分工就清楚了：
+
+- **起 daemon 归 perp**（`xvnc2.sh` 的 `dbus-session` 分支，`--nofork`，perpd 当看门人）；
+- **`profile.d` 只剩一行 export**，daemon 已经在位，不用再 spawn：
+
+  ```sh
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:abstract=/tmp/dbus-uid$(id -u)}"
+  ```
+
+- **`/usr/local/lib/dbus/ensure-user-session-bus.sh` 删掉**。
+  它最有价值的两条实测约束（只绑 abstract、必须 `--nosyslog`）随逻辑一起进 `xvnc2.sh`。
+
+最终就三处，其中两处是同一句命令：
+
+1. `src/xvnc2.sh` + `entry-x11base.sh` —— perp 起 daemon（唯一 owner，保活）
+2. `/etc/profile.d/99dbus-session.sh` —— 一行 export（ssh 登录 shell 拿到地址）
+3. DE / awesome 的 perp 服务命令 —— 同一行 export（桌面子树靠继承）
+
+**为什么 `profile.d` 那行可以留仓外**：路径是发行版标准 hook
+（POSIX 登录时 `/etc/profile` 遍历 source `/etc/profile.d/*.sh`），
+加载机制由 OS 提供，不需要 entry 帮忙。
+而 `ensure-*` 放 `/usr/local/lib/dbus/` 既没有标准路径、也没有标准加载者，
+全容器唯一调用方就是 `profile.d` 那几行——它本来就寄生在那上面，所以直接删。
+
+**`ensure-*` 是必须删，不是可以删**：perp 起来之后它再 spawn → bind 失败
+→ daemon 立刻退 → perpd 无限 respawn 自转。
+
+接受的后果：`profile.d` 那一行还在 rootfs 里，镜像重建后**会丢**，
+ssh 就再也拿不到地址。它只有 1 行，重装成本忽略不计；真嫌烦再考虑让 entry 写它。
 
 ### 3、实施顺序（建议）
 
 1. `xvnc2.sh` 加 `dbus-session` 分支 → `entry-x11base.sh` 注册服务
-   → **同步**把 `ensure-user-session-bus.sh` 的 spawn 逻辑拿掉（否则 perpd 自转）。
+   → **同步删掉** `/usr/local/lib/dbus/ensure-user-session-bus.sh`，
+    把 `profile.d/99dbus-session.sh` 缩成一行 export（否则 perpd 自转）。
 2. `entry-x11base.sh` 改 `x1-de`：去掉 `dbus-launch --exit-with-session`，
    改成 export 固定地址。
 3. 起 awesome 改成 **headless** + 带固定地址。
@@ -270,6 +298,8 @@ autostart `.desktop` 都是 entry 直接写的）：
 
 ### 4、落地后的验证清单
 
+- [ ] `/usr/local/lib/dbus/ensure-user-session-bus.sh` 已删；
+  `profile.d/99dbus-session.sh` 只剩一行 export
 - [ ] `x1-dbus-session` 服务 up，daemon 父进程是 perpd（不是 1）
 - [ ] 手动 kill daemon → perpd 数秒内拉起，abstract 名不变
 - [ ] `bash -lc 'echo $DBUS_SESSION_BUS_ADDRESS'` → `unix:abstract=/tmp/dbus-uid1000`
