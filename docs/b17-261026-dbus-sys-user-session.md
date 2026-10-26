@@ -174,7 +174,7 @@ PID 1  /usr/sbin/tini -- perpd
 
 ---
 
-## 二、拍板结果与实施方案（2026-10-26，**未开工**）
+## 二、拍板结果与实施方案（2026-10-26，仓库侧已实施，**验证待做**）
 
 ### 1、四条结论
 
@@ -225,11 +225,10 @@ PID 1  /usr/sbin/tini -- perpd
 具体落点（entry 脚本里已有同类写法：`/etc/default/useradd`、`/etc/hosts`、
 autostart `.desktop` 都是 entry 直接写的）：
 
-- `src/entry-x11base.sh:149`：把 `dbus-launch --exit-with-session openbox-session`
-  换成「export 固定地址 + `exec openbox-session`」——**DE 自己带上地址**；
-- `src/entry-x11base.sh:156` 生成的 `x1-de`：`decmd` 里加
-  `export DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-uid$(id -u headless)`；
-- awesome 若走独立 perp 服务，同一行 export 加在那个服务的命令里。
+- `src/entry-x11base.sh`：新增 `busaddr="unix:abstract=/tmp/dbus-uid$(id -u headless)"`，
+  并进 **`envcmd`**（不是 `decmd`）。`envcmd` 是 `x1-de` 与各工具服务的共同前缀，
+  所以 DE / awesome / 桌面终端整条子树一次覆盖，不用再给个别服务单加；
+- 同一处删掉 `dbus-launch --exit-with-session` 分支。
 
 #### 2.3、perp 保活（已批准动 `src/xvnc2.sh` + `src/entry-x11base.sh`）
 
@@ -283,8 +282,9 @@ perp 起来的用户总线地址是 `unix:abstract=/tmp/dbus-uid<uid>`，
 **`ensure-*` 是必须删，不是可以删**：perp 起来之后它再 spawn → bind 失败
 → daemon 立刻退 → perpd 无限 respawn 自转。
 
-接受的后果：`profile.d` 那一行还在 rootfs 里，镜像重建后**会丢**，
-ssh 就再也拿不到地址。它只有 1 行，重装成本忽略不计；真嫌烦再考虑让 entry 写它。
+落地时**由 entry 每次启动重写**这一行（`cat > /etc/profile.d/99dbus-session.sh`），
+镜像重建不会丢——上表里「真嫌烦再考虑让 entry 写它」的兜底直接落掉了。
+文件里写死的是 headless 的 uid（不是 `$(id -u)`）：这份文件只服务 headless 的登录 shell。
 
 ### 3、实施顺序（建议）
 
