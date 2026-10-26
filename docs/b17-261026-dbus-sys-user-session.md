@@ -170,14 +170,111 @@ PID 1  /usr/sbin/tini -- perpd
   `ensure-*` 要降级成「**等名字出现 + export**」，不再 spawn。
 - **这两个文件不在本仓**：`/usr/local/lib/dbus/ensure-user-session-bus.sh` 和
   `/etc/profile.d/99dbus-session.sh` 目前只装在这台容器的 rootfs 里，
-  **重建镜像就丢**，应该纳入 `src/` 并由 entry 脚本安装。
+  **重建镜像就丢**；已确认**不纳入本仓**（见 二.2.4），风险接受。
 
-### 9、待拍板
+---
 
-1. **awesome 用哪个 uid 起**（root 还是 headless）？这是目前最大的分裂源——
-   决定 awesome 连 `uid0` 还是 `uid1000` 的总线。
-2. **非登录 shell 的地址补在 `~/.bashrc`** 可以吗？（影响范围只有 headless，最小）
-3. **要不要动 `src/xvnc2.sh` + `src/entry-x11base.sh` 加 perp 保活**？
-   （影响所有发行版 / 架构镜像）
-4. **要不要把 `ensure-user-session-bus.sh` + `99dbus-session.sh` 纳入本仓** `src/`，
-   由 entry 脚本安装？
+## 二、拍板结果与实施方案（2026-10-26，**未开工**）
+
+### 1、四条结论
+
+| # | 问题 | 结论 |
+|---|---|---|
+| 1 | awesome 用哪个 uid 起 | **headless**（连 uid1000 那条固定地址总线） |
+| 2 | 非登录 shell 的地址放哪 | **不塞 `~/.bashrc`**；改由 **entry / perp 任务脚本幂等注入**（见 2.2） |
+| 3 | 动 `src/xvnc2.sh` + `src/entry-x11base.sh` 加 perp 保活 | **可以动** |
+| 4 | `ensure-user-session-bus.sh` + `99dbus-session.sh` 纳入本仓 | **不纳入**（留在容器 rootfs，见 2.4） |
+
+### 2、逐条展开
+
+#### 2.1、awesome 用 headless 起
+
+- **现状**：live awesome（`:311`）是 **root** 起的，挂在 root 的**随机地址**总线上
+  （`unix:abstract=/tmp/dbus-9SzWkUg6ZH`），和 headless 的 shell（uid1000）**不是同一条**。
+- **改后**：awesome 由 **headless** 起，
+  `DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-uid1000`。
+  X 权限没问题——`/xvnc2.sh xvnc` 分支起 Xvnc 带 `-ac`（关闭访问控制），
+  同容器内任意用户可连。
+- **收益**：awesome / 桌面终端 / ssh 三者落到**同一条**总线，通知链路闭合。
+- **注意**：HOME 是 `/_ext/home/headless`（挂载盘），awesome 的 rc / cache 落在挂载盘，
+  权限归 headless，符合预期。
+
+#### 2.2、地址注入点：候选矩阵与结论
+
+先说清一个前提：**脚本本身不 source 任何 rc 文件**。
+「shell 里有地址」只意味着「**从这个 shell 直接跑**脚本」能带上；
+`ssh host 'cmd'`、cron、maki 工具会话这类**不在交互 shell 下**的入口，照样拿不到。
+
+| 注入点 | 覆盖谁 | 不覆盖谁 | 幂等性 |
+|---|---|---|---|
+| **perp 服务命令**（entry 生成的 `/etc/perp/<svc>/rc.main`）| DE / WM 及其**所有后代**
+  （awesome、桌面终端、GUI 应用）| 非该子树的进程 | **天然幂等**：entry 每次启动
+  `rm -rf /etc/perp/x1-*` 后重建 |
+| `/etc/profile.d/*.sh` | **登录 shell**（含 ssh 交互式）| 非登录 / 非交互 | 幂等（静态文件）|
+| `$HOME/.bashrc` | 交互非登录 bash | zsh / sh / 非交互 / 脚本自身 |
+  **需 marker 包裹的幂等追加** |
+| `/etc/bash.bashrc` | 同上，但**覆盖所有用户**（含 xvncN）| 同上 | 同上 |
+| `/etc/environment` | PAM 登录会话 | 非登录 | 幂等（静态文件）|
+| DE 的 autostart `.desktop` | **无**（DE 进程不会继承 autostart 的 export）| 全部 | — |
+
+**结论：主注入点放 perp 服务命令**（起 DE / WM 的那个服务），靠**环境继承**覆盖整个
+桌面子树；`/etc/profile.d/` 继续管登录 shell；只有「非 DE 子树 + 非登录」这种残余场景
+才需要 `$HOME/.bashrc` 的 marker 幂等追加——**那条暂不做**，等确认真的需要再补。
+
+具体落点（entry 脚本里已有同类写法：`/etc/default/useradd`、`/etc/hosts`、
+autostart `.desktop` 都是 entry 直接写的）：
+
+- `src/entry-x11base.sh:149`：把 `dbus-launch --exit-with-session openbox-session`
+  换成「export 固定地址 + `exec openbox-session`」——**DE 自己带上地址**；
+- `src/entry-x11base.sh:156` 生成的 `x1-de`：`decmd` 里加
+  `export DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-uid$(id -u headless)`；
+- awesome 若走独立 perp 服务，同一行 export 加在那个服务的命令里。
+
+#### 2.3、perp 保活（已批准动 `src/xvnc2.sh` + `src/entry-x11base.sh`）
+
+要点（命令片段见 一.8 建议 3）：
+
+1. `xvnc2.sh` 新增 `dbus-session` 分支，`exec su-exec headless dbus-daemon --session
+   --nosyslog --nofork --address=...`。**必须 `--nofork`**，perpd 才能是它的父进程。
+2. `entry-x11base.sh` 里 `addPerpService "$xn" "dbus-session" ...`，服务名排在
+   `x1-de` 之前（`x1-dbus-session` < `x1-de`）。⚠️ perpd 的启动顺序**不保证等于
+   字典序**，需实测；不放心就让 DE 侧先等总线就绪。
+3. 同时删掉 `dbus-launch --exit-with-session`（否则一条新总线 + 一条死总线并存）。
+4. **owner 必须唯一（关键）**：`ensure-user-session-bus.sh` 现在是「不在就自己
+   spawn」。perpd 起了之后它再 spawn 会 bind 失败 → daemon 立刻退出 → **perpd 无限
+   respawn 自转**。落地时必须把它的 spawn 逻辑拿掉，降级成「**等名字出现 + export**」。
+5. 顺手清理：`dbus-launch --autolaunch` 残留进程、`~/.dbus/session-bus/` 里的过期
+   记录、21 条 root 随机 session daemon。
+
+#### 2.4、不纳入本仓（已接受）
+
+`/usr/local/lib/dbus/ensure-user-session-bus.sh` 和 `/etc/profile.d/99dbus-session.sh`
+**不进 `src/`、不由 entry 安装**，继续留在容器 rootfs 手工维护。
+
+接受的后果：
+
+- 镜像重建后这两个文件**会丢**，需手工重装；`/etc/profile.d/` 那条一丢，
+  **登录 shell 就再也拿不到地址**了。
+- 与 2.3 的冲突点仍在：perp 保活要改那个**不在版本管理里**的文件（2.3 第 4 条），
+  改完镜像一重建就回退成 spawn 版本 → perpd 自转。风险**已知且接受**；
+  若之后不想手工维护，再回头考虑纳入本仓。
+
+### 3、实施顺序（建议）
+
+1. `xvnc2.sh` 加 `dbus-session` 分支 → `entry-x11base.sh` 注册服务
+   → **同步**把 `ensure-user-session-bus.sh` 的 spawn 逻辑拿掉（否则 perpd 自转）。
+2. `entry-x11base.sh` 改 `x1-de`：去掉 `dbus-launch --exit-with-session`，
+   改成 export 固定地址。
+3. 起 awesome 改成 **headless** + 带固定地址。
+4. 清理残留进程与过期 autolaunch 记录。
+
+### 4、落地后的验证清单
+
+- [ ] `x1-dbus-session` 服务 up，daemon 父进程是 perpd（不是 1）
+- [ ] 手动 kill daemon → perpd 数秒内拉起，abstract 名不变
+- [ ] `bash -lc 'echo $DBUS_SESSION_BUS_ADDRESS'` → `unix:abstract=/tmp/dbus-uid1000`
+- [ ] 桌面里打开的终端 `echo $DBUS_SESSION_BUS_ADDRESS` → 同上
+- [ ] awesome 进程 owner 是 **headless**，environ 里地址是 uid1000 那条
+- [ ] `notify_triggers.py owner` 返回的 pid == awesome 的 pid（不再假阳性）
+- [ ] `notify_triggers.py` 5 形状全 `OK`，且通知真弹出（Xvnc 截图像素验证）
+- [ ] `/proc/net/unix` 里 session 总线只剩 1~2 条（uid1000 + uid0），无 root 随机泄漏
