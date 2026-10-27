@@ -84,29 +84,29 @@ x11base-all)
     # wait 
     # exit 0
 
-    # doBuildx app-ubuntu-18.04 src/Dockerfile.app-ubuntu &
-    # doBuildx app-ubuntu-20.04 src/Dockerfile.app-ubuntu &
+    doBuildx app-ubuntu-18.04 src/Dockerfile.app-ubuntu &
+    doBuildx app-ubuntu-20.04 src/Dockerfile.app-ubuntu &
     doBuildx app-ubuntu-22.04 src/Dockerfile.app-ubuntu &
-    # doBuildx app-ubuntu-24.04 src/Dockerfile.app-ubuntu &
-    # # doBuildx app-ubuntu-26.04 src/Dockerfile.app-ubuntu &
-    # # wait
-    # # doBuildx app-opensuse-15.5 src/Dockerfile.zyp-opensuse &
-    # # doBuildx app-opensuse-15.6 src/Dockerfile.zyp-opensuse &
-    # # wait
-    # doBuildx app-alpine-3.13 src/Dockerfile.app-alpine & #xorgCrash@weipai_s11
-    # # doBuildx app-alpine-3.14 src/Dockerfile.app-alpine &
-    # # doBuildx app-alpine-3.16 src/Dockerfile.app-alpine &
-    # doBuildx app-alpine-3.19 src/Dockerfile.app-alpine &
-    # # doBuildx app-alpine-3.21 src/Dockerfile.app-alpine &
-    # doBuildx app-alpine-3.23 src/Dockerfile.app-alpine &
-    # # 
-    # # doBuildx core-debian-7 src/Dockerfile.app-debian & #err
-    # # doBuildx core-debian-8 src/Dockerfile.app-debian &
-    # doBuildx core-debian-9 src/Dockerfile.app-debian &
-    # doBuildx core-debian-10 src/Dockerfile.app-debian &
-    # doBuildx core-debian-11 src/Dockerfile.app-debian &
-    # doBuildx core-debian-12 src/Dockerfile.app-debian &
-    # # doBuildx core-debian-13 src/Dockerfile.app-debian &
+    doBuildx app-ubuntu-24.04 src/Dockerfile.app-ubuntu &
+    doBuildx app-ubuntu-26.04 src/Dockerfile.app-ubuntu &
+    # wait
+    # doBuildx app-opensuse-15.5 src/Dockerfile.zyp-opensuse &
+    doBuildx app-opensuse-15.6 src/Dockerfile.zyp-opensuse &
+    # wait
+    doBuildx app-alpine-3.13 src/Dockerfile.app-alpine & #xorgCrash@weipai_s11
+    # doBuildx app-alpine-3.14 src/Dockerfile.app-alpine &
+    # doBuildx app-alpine-3.16 src/Dockerfile.app-alpine &
+    doBuildx app-alpine-3.19 src/Dockerfile.app-alpine &
+    # doBuildx app-alpine-3.21 src/Dockerfile.app-alpine &
+    doBuildx app-alpine-3.23 src/Dockerfile.app-alpine &
+    # 
+    # doBuildx core-debian-7 src/Dockerfile.app-debian & #err
+    # doBuildx core-debian-8 src/Dockerfile.app-debian &
+    doBuildx core-debian-9 src/Dockerfile.app-debian &
+    doBuildx core-debian-10 src/Dockerfile.app-debian &
+    doBuildx core-debian-11 src/Dockerfile.app-debian &
+    doBuildx core-debian-12 src/Dockerfile.app-debian &
+    doBuildx core-debian-13 src/Dockerfile.app-debian &
     wait
     ;;    
 *)
