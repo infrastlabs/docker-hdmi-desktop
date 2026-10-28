@@ -385,6 +385,10 @@ chmod +x $file;
 
 rm -f /tmp/udev-trigger.lock #rm for xvnc2.sh
 export PS1='[\u@\h \W]\$ ' #@openwrt
+
+# 261028 avoid awm's err
+mkdir -p /usr/share/X11/xkb
+
 export PERP_BASE=/etc/perp; dst=/var/log/tinylog/_perp; mkdir -p $dst
 # gzip -V > /dev/null && z="-z" #deb9:有gzip,tinylog调用也出错
 exec /usr/sbin/tini -- perpd > >(exec tinylog -k2 -s1000 $z $dst) 2>&1
