@@ -48,7 +48,8 @@ RUN \
   rofi  xterm; \
   \
   #ubt1804.none: alsa-ucm-conf jgmenu
-  apt.sh alsa-ucm-conf jgmenu  dropbear  awesome i3-wm; \
+  # 261028 drop:  awesome i3-wm
+  apt.sh alsa-ucm-conf jgmenu  dropbear ; \
   #40M+: nm-applet[deb9:only.5M, ubt20+:muchDeps.withGnomeDesk.40M+]
   # apt.sh network-manager-gnome; \
   exit 0
