@@ -84,6 +84,8 @@ x11base-all)
     # wait 
     # exit 0
 
+    doBuildx app-ubuntu-14.04 src/Dockerfile.app-ubuntu &
+    doBuildx app-ubuntu-16.04 src/Dockerfile.app-ubuntu &
     doBuildx app-ubuntu-18.04 src/Dockerfile.app-ubuntu &
     doBuildx app-ubuntu-20.04 src/Dockerfile.app-ubuntu &
     doBuildx app-ubuntu-22.04 src/Dockerfile.app-ubuntu &
