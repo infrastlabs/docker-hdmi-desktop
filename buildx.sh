@@ -95,6 +95,7 @@ x11base-all)
     # doBuildx app-opensuse-15.5 src/Dockerfile.zyp-opensuse &
     doBuildx app-opensuse-15.6 src/Dockerfile.zyp-opensuse &
     # wait
+    doBuildx app-alpine-3.6  src/Dockerfile.app-alpine &
     doBuildx app-alpine-3.13 src/Dockerfile.app-alpine & #xorgCrash@weipai_s11
     # doBuildx app-alpine-3.14 src/Dockerfile.app-alpine &
     # doBuildx app-alpine-3.16 src/Dockerfile.app-alpine &
