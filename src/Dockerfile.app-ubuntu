@@ -60,9 +60,11 @@ ADD ./src/xvnc2.sh /
 RUN \
     chmod +x /*.sh; \
     # DO dotfiles/refresh.sh
-    git config --global --add safe.directory /usr/local/static/.dotfiles; \
-    cd /usr/local/static/.dotfiles/; \
-    git fetch; git reset --hard origin/master; \
+    t=/usr/local/static/.dotfiles; 
+    git config --global --add safe.directory $t; \
+    git config --global --add safe.directory $t/.artwork-main/.config/awesome; \
+    cd $t/; git fetch; git reset --hard origin/master; \
+    cd $t/.artwork-main/.config/awesome; git fetch; git reset --hard origin/sam-custom; \
     bash refresh.sh; \
     exit 0
 
