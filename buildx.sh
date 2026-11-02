@@ -81,8 +81,8 @@ case "$1" in
 #     ;;
 x11base-all)
     # doBuildx app-ubuntu2-22.04 src/Dockerfile.app-ubuntu2 &
-    # wait 
-    # exit 0
+    doBuildx app-alpine-3.12 src/Dockerfile.app-alpine &
+    wait; exit 0
 
     doBuildx app-alpine-3.6  src/Dockerfile.app-alpine & ## first-armv7
     doBuildx app-alpine-3.12 src/Dockerfile.app-alpine &
