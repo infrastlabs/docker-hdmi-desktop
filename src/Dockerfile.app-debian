@@ -51,13 +51,17 @@ RUN apt.sh \
   rofi  xterm; \
   exit 0
 
-RUN \
-  # DO dotfiles/refresh.sh
-  cd /usr/local/static/.dotfiles/; \
-  git config --global --add safe.directory /usr/local/static/.dotfiles; \
-  git fetch; git reset --hard origin/master; \
-  bash refresh.sh; \
-  exit 0
+ARG NOCACHE
+RUN echo "NOCACHE=${NOCACHE}"; \
+    chmod +x /*.sh; \
+    # DO dotfiles/refresh.sh
+    t=/usr/local/static/.dotfiles; 
+    git config --global --add safe.directory $t; \
+    git config --global --add safe.directory $t/.artwork-main/.config/awesome; \
+    cd $t/; git fetch; git reset --hard origin/master; \
+    cd $t/.artwork-main/.config/awesome; git fetch; git reset --hard origin/sam-custom; \
+    bash refresh.sh; \
+    exit 0
 
 # # deb8-none: alsa-ucm-conf; left:47.8M
 #   xserver-xorg pulseaudio \
