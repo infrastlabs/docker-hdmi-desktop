@@ -85,6 +85,7 @@ x11base-all)
     # exit 0
 
     doBuildx app-alpine-3.6  src/Dockerfile.app-alpine & ## first-armv7
+    doBuildx app-alpine-3.12 src/Dockerfile.app-alpine &
     doBuildx app-alpine-3.13 src/Dockerfile.app-alpine & #xorgCrash@weipai_s11
     # doBuildx app-alpine-3.14 src/Dockerfile.app-alpine &
     # doBuildx app-alpine-3.16 src/Dockerfile.app-alpine &
