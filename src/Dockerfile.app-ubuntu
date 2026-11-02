@@ -61,7 +61,7 @@ ARG NOCACHE
 RUN echo "NOCACHE=${NOCACHE}"; \
     chmod +x /*.sh; \
     # DO dotfiles/refresh.sh
-    t=/usr/local/static/.dotfiles; 
+    t=/usr/local/static/.dotfiles; \
     git config --global --add safe.directory $t; \
     git config --global --add safe.directory $t/.artwork-main/.config/awesome; \
     cd $t/; git fetch; git reset --hard origin/master; \
