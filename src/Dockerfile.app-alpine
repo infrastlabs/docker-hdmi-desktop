@@ -48,8 +48,9 @@ RUN \
   pavucontrol \
   musl-locales musl-locales-lang; \
   # alpine313.none: sakura
-  apk add sakura ;
-
+  apk add sakura ;\
+  exit 0
+  
 COPY --from=deb /usr/share/locale/zh_CN /usr/share/locale/zh_CN
 COPY --from=ubt /usr/share/locale/zh_CN /usr/share/locale/zh_CN
 ARG NOCACHE
